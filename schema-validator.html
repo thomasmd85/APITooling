@@ -1,0 +1,1136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Acoustic — Schema Validator</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js">
+function toggleSendMenu(e) {
+  e.stopPropagation();
+  const menu  = document.getElementById('send-menu');
+  const caret = document.getElementById('send-caret');
+  const open  = menu.classList.toggle('open');
+  caret.classList.toggle('open', open);
+}
+
+document.addEventListener('click', () => {
+  document.getElementById('send-menu').classList.remove('open');
+  document.getElementById('send-caret').classList.remove('open');
+});
+
+function sendToTool(toolFile) {
+  if (!validationResult || !validationResult.valid.length) {
+    showToast('Run validation first', 'red');
+    return;
+  }
+  // Store the raw file as base64 so the target tool can replay handleFile()
+  const fileInput = document.getElementById('fileInput');
+  const file = fileInput.files[0];
+  if (file) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const payload = {
+        fileName: fileName,
+        fileBase64: e.target.result,       // full data URL
+        attrs: validationResult.valid.map(a => ({ name: a.name, raw: a.rawType, type: a.type }))
+      };
+      try {
+        sessionStorage.setItem('acoustic_schema_transfer', JSON.stringify(payload));
+      } catch(err) {
+        // File too large for sessionStorage — fall back to attrs only
+        sessionStorage.setItem('acoustic_schema_transfer', JSON.stringify({
+          fileName: fileName,
+          attrs: validationResult.valid.map(a => ({ name: a.name, raw: a.rawType, type: a.type }))
+        }));
+      }
+      window.open(toolFile, '_blank');
+    };
+    reader.readAsDataURL(file);
+  } else {
+    // No file object (e.g. drag-drop after reload) — send attrs only
+    const payload = {
+      fileName: fileName,
+      attrs: validationResult.valid.map(a => ({ name: a.name, raw: a.rawType, type: a.type }))
+    };
+    sessionStorage.setItem('acoustic_schema_transfer', JSON.stringify(payload));
+    window.open(toolFile, '_blank');
+  }
+  document.getElementById('send-menu').classList.remove('open');
+  document.getElementById('send-caret').classList.remove('open');
+}
+
+</script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:         #0d0f12;
+    --surface:    #13161b;
+    --surface2:   #1a1e25;
+    --border:     #252a33;
+    --border2:    #2e3540;
+    --text:       #e8eaf0;
+    --muted:      #7a8494;
+    --accent:     #4f8ef7;
+    --accent-dim: #1e3260;
+    --green:      #3ecf8e;
+    --green-dim:  #0d3326;
+    --amber:      #f5a623;
+    --amber-dim:  #3d2800;
+    --red:        #f56565;
+    --red-dim:    #3d1212;
+    --purple:     #a78bfa;
+    --purple-dim: #2d1f5e;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'IBM Plex Sans', sans-serif;
+  }
+
+  html { font-size: 14px; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-weight: 300;
+    min-height: 100vh;
+    line-height: 1.6;
+  }
+
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(79,142,247,.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(79,142,247,.03) 1px, transparent 1px);
+    background-size: 48px 48px;
+    pointer-events: none; z-index: 0;
+  }
+
+  .app-shell {
+    position: relative; z-index: 1;
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    min-height: 100vh;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    position: sticky; top: 0; height: 100vh; overflow: hidden;
+  }
+
+  .sidebar-top {
+    padding: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .back-link {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted);
+    text-decoration: none; margin-bottom: 16px;
+    transition: color 0.15s;
+  }
+  .back-link:hover { color: var(--accent); }
+  .back-link svg { width: 12px; height: 12px; stroke: currentColor; fill: none; }
+
+  .sidebar-tool-name {
+    font-family: var(--mono); font-size: 11px; font-weight: 500;
+    color: var(--green); letter-spacing: 0.06em;
+  }
+  .sidebar-tool-sub {
+    font-size: 11px; color: var(--muted); margin-top: 2px;
+  }
+
+  .sidebar-rules {
+    padding: 20px; flex: 1; overflow-y: auto;
+  }
+  .sidebar-rules::-webkit-scrollbar { width: 3px; }
+  .sidebar-rules::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+
+  .rules-heading {
+    font-family: var(--mono); font-size: 9px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--muted);
+    margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
+  }
+  .rules-heading::after { content: ''; flex: 1; border-top: 1px solid var(--border); }
+
+  .rule-item {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .rule-item:last-child { border-bottom: none; }
+
+  .rule-dot {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; margin-top: 6px;
+  }
+  .rule-dot.error  { background: var(--red); }
+  .rule-dot.warn   { background: var(--amber); }
+  .rule-dot.info   { background: var(--accent); }
+
+  .rule-text { font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .rule-text strong { color: var(--text); font-weight: 500; display: block; margin-bottom: 1px; }
+
+  .sidebar-footer {
+    padding: 14px 20px;
+    border-top: 1px solid var(--border);
+    font-family: var(--mono); font-size: 10px; color: var(--muted);
+  }
+
+  /* ── Main ── */
+  .main { display: flex; flex-direction: column; }
+
+  .topbar {
+    padding: 14px 32px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 10;
+  }
+
+  .topbar-left { display: flex; align-items: center; gap: 12px; }
+  .topbar-title {
+    font-family: var(--mono); font-size: 12px; font-weight: 500;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+  }
+
+  .status-badge {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em;
+    text-transform: uppercase; padding: 3px 10px; border-radius: 20px;
+    border: 1px solid var(--border2); color: var(--muted); background: var(--surface2);
+    transition: all 0.3s;
+  }
+  .status-badge.pass { background: var(--green-dim); border-color: var(--green); color: var(--green); }
+  .status-badge.fail { background: var(--red-dim);   border-color: var(--red);   color: var(--red); }
+  .status-badge.warn { background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
+
+  .content { padding: 32px; flex: 1; max-width: 900px; }
+
+  /* ── Upload zone ── */
+  .upload-row {
+    display: grid; grid-template-columns: 1fr auto; gap: 16px;
+    align-items: stretch; margin-bottom: 28px;
+  }
+
+  .dropzone {
+    border: 1.5px dashed var(--border2); border-radius: 10px;
+    padding: 28px 24px; display: flex; align-items: center; gap: 16px;
+    cursor: pointer; transition: all 0.2s; background: var(--surface);
+    position: relative;
+  }
+  .dropzone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+  .dropzone:hover, .dropzone.drag-over { border-color: var(--green); background: var(--green-dim); }
+
+  .drop-icon-sm {
+    width: 36px; height: 36px; flex-shrink: 0;
+    background: var(--surface2); border: 1px solid var(--border2);
+    border-radius: 8px; display: flex; align-items: center; justify-content: center;
+  }
+  .drop-icon-sm svg { width: 16px; height: 16px; stroke: var(--muted); fill: none; }
+
+  .drop-text-title { font-size: 13px; font-weight: 500; color: var(--text); margin-bottom: 2px; }
+  .drop-text-sub { font-size: 11px; color: var(--muted); }
+
+  .validate-btn {
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 24px; border-radius: 10px;
+    font-family: var(--mono); font-size: 12px; font-weight: 500;
+    letter-spacing: 0.04em; cursor: pointer; border: 1px solid var(--green);
+    background: var(--green-dim); color: var(--green); transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .validate-btn:hover { background: var(--green); color: #000; }
+  .validate-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .validate-btn svg { width: 15px; height: 15px; stroke: currentColor; fill: none; }
+
+  /* ── Score banner ── */
+  .score-banner {
+    display: none; border-radius: 10px; overflow: hidden;
+    border: 1px solid var(--border); margin-bottom: 28px;
+  }
+  .score-banner.visible { display: flex; animation: fadeUp 0.25s ease; }
+
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  .score-main {
+    flex: 1; padding: 20px 24px; display: flex; align-items: center; gap: 20px;
+    background: var(--surface);
+  }
+
+  .score-circle {
+    width: 56px; height: 56px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 18px; font-weight: 500;
+    border: 2px solid;
+  }
+  .score-circle.pass { border-color: var(--green); color: var(--green); background: var(--green-dim); }
+  .score-circle.fail { border-color: var(--red);   color: var(--red);   background: var(--red-dim); }
+  .score-circle.warn { border-color: var(--amber); color: var(--amber); background: var(--amber-dim); }
+
+  .score-info h3 { font-size: 15px; font-weight: 500; color: var(--text); margin-bottom: 3px; }
+  .score-info p  { font-size: 12px; color: var(--muted); }
+
+  .score-stats {
+    display: flex; gap: 0;
+    border-left: 1px solid var(--border);
+  }
+
+  .score-stat {
+    padding: 20px 24px; text-align: center;
+    border-right: 1px solid var(--border); background: var(--surface);
+  }
+  .score-stat:last-child { border-right: none; }
+  .score-stat-val {
+    font-family: var(--mono); font-size: 22px; font-weight: 500;
+    line-height: 1; margin-bottom: 4px;
+  }
+  .score-stat-val.red    { color: var(--red); }
+  .score-stat-val.amber  { color: var(--amber); }
+  .score-stat-val.green  { color: var(--green); }
+  .score-stat-val.muted  { color: var(--muted); }
+  .score-stat-label { font-family: var(--mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+
+  /* ── Results ── */
+  .results-section { display: none; }
+  .results-section.visible { display: block; animation: fadeUp 0.3s 0.1s ease both; }
+
+  .section-title {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 14px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .section-title::after { content: ''; flex: 1; border-top: 1px solid var(--border); }
+  .section-title .count {
+    font-size: 10px; padding: 1px 7px; border-radius: 10px;
+    font-weight: 500; letter-spacing: 0;
+  }
+  .section-title .count.red    { background: var(--red-dim);   color: var(--red);   border: 1px solid var(--red); }
+  .section-title .count.amber  { background: var(--amber-dim); color: var(--amber); border: 1px solid var(--amber); }
+  .section-title .count.green  { background: var(--green-dim); color: var(--green); border: 1px solid var(--green); }
+
+  /* ── Issue cards ── */
+  .issue-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 28px; }
+
+  .issue-card {
+    display: flex; align-items: flex-start; gap: 14px;
+    padding: 14px 16px; border-radius: 8px; border: 1px solid;
+  }
+  .issue-card.error { background: var(--red-dim);   border-color: rgba(245,101,101,.3); }
+  .issue-card.warn  { background: var(--amber-dim); border-color: rgba(245,166,35,.3); }
+  .issue-card.info  { background: var(--accent-dim); border-color: rgba(79,142,247,.3); }
+
+  .issue-icon {
+    width: 28px; height: 28px; border-radius: 6px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; margin-top: 1px;
+  }
+  .issue-icon.error { background: rgba(245,101,101,.2); }
+  .issue-icon.warn  { background: rgba(245,166,35,.2); }
+  .issue-icon.info  { background: rgba(79,142,247,.2); }
+  .issue-icon svg { width: 14px; height: 14px; stroke-width: 2; fill: none; }
+  .issue-icon.error svg { stroke: var(--red); }
+  .issue-icon.warn  svg { stroke: var(--amber); }
+  .issue-icon.info  svg { stroke: var(--accent); }
+
+  .issue-body { flex: 1; }
+  .issue-title { font-size: 13px; font-weight: 500; margin-bottom: 3px; }
+  .issue-card.error .issue-title { color: var(--red); }
+  .issue-card.warn  .issue-title { color: var(--amber); }
+  .issue-card.info  .issue-title { color: var(--accent); }
+  .issue-desc { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+
+  .issue-rows { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+  .issue-row {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 11px;
+    background: rgba(0,0,0,.25); border-radius: 4px; padding: 4px 8px;
+  }
+  .issue-row .row-num {
+    color: var(--muted); flex-shrink: 0; min-width: 28px;
+  }
+  .issue-row .row-name { color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .issue-row .row-detail { color: var(--muted); font-size: 10px; }
+  .issue-row .row-fix {
+    font-size: 10px; padding: 1px 6px; border-radius: 3px; flex-shrink: 0;
+    border: 1px solid;
+  }
+  .issue-card.error .row-fix { border-color: rgba(245,101,101,.4); color: var(--red); }
+  .issue-card.warn  .row-fix { border-color: rgba(245,166,35,.4);  color: var(--amber); }
+
+  .issue-card .show-more {
+    font-family: var(--mono); font-size: 10px; color: var(--muted);
+    background: none; border: none; cursor: pointer; padding: 4px 0;
+    letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.15s;
+  }
+  .issue-card .show-more:hover { color: var(--text); }
+
+  /* ── Clean table ── */
+  .clean-table-wrap {
+    border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+    margin-bottom: 32px;
+  }
+  .clean-table {
+    width: 100%; border-collapse: collapse; font-size: 12px;
+  }
+  .clean-table thead tr { background: var(--surface2); }
+  .clean-table th {
+    padding: 9px 14px; font-family: var(--mono); font-size: 10px; font-weight: 500;
+    letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);
+    text-align: left; border-bottom: 1px solid var(--border);
+  }
+  .clean-table td {
+    padding: 8px 14px; border-bottom: 1px solid var(--border);
+    color: var(--text);
+  }
+  .clean-table tbody tr:last-child td { border-bottom: none; }
+  .clean-table tbody tr:hover { background: var(--surface2); }
+  .clean-table .col-mono { font-family: var(--mono); font-size: 11px; }
+  .clean-table .col-num  { color: var(--muted); font-family: var(--mono); font-size: 10px; }
+
+  .clean-scroll { max-height: 320px; overflow-y: auto; }
+  .clean-scroll::-webkit-scrollbar { width: 4px; }
+  .clean-scroll::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+
+  .table-footer {
+    padding: 8px 14px; background: var(--surface2);
+    border-top: 1px solid var(--border);
+    font-family: var(--mono); font-size: 10px; color: var(--muted);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+
+  /* ── Type badges ── */
+  .type-badge {
+    font-family: var(--mono); font-size: 10px; font-weight: 500;
+    letter-spacing: 0.04em; padding: 2px 8px; border-radius: 3px; border: 1px solid;
+  }
+  .type-badge.TEXT    { background: rgba(79,142,247,.12);  border-color: #4f8ef7; color: #8ab4fb; }
+  .type-badge.BOOLEAN { background: rgba(62,207,142,.12);  border-color: #3ecf8e; color: #5dd9a6; }
+  .type-badge.NUMBER  { background: rgba(245,166,35,.12);  border-color: #f5a623; color: #f5c060; }
+  .type-badge.DATE    { background: rgba(167,139,250,.12); border-color: #a78bfa; color: #c4aeff; }
+  .type-badge.UNKNOWN { background: rgba(245,101,101,.12); border-color: #f56565; color: #f56565; }
+
+  .ok-dot {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--green-dim); border: 1px solid var(--green);
+  }
+  .ok-dot svg { width: 10px; height: 10px; stroke: var(--green); fill: none; stroke-width: 2.5; }
+
+  /* ── Action row ── */
+  .action-row {
+    display: flex; gap: 10px; margin-top: 8px; padding-top: 24px;
+    border-top: 1px solid var(--border);
+  }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 9px 18px; border-radius: 8px; font-family: var(--mono);
+    font-size: 12px; font-weight: 500; letter-spacing: 0.04em;
+    cursor: pointer; border: 1px solid; transition: all 0.15s; text-decoration: none;
+  }
+  .btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; flex-shrink: 0; }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn-primary:hover { background: #6ba0f9; border-color: #6ba0f9; }
+  .btn-secondary { background: var(--surface2); border-color: var(--border2); color: var(--text); }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Empty ── */
+  .empty {
+    text-align: center; padding: 64px 32px;
+  }
+  .empty-icon {
+    width: 52px; height: 52px; margin: 0 auto 18px;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 12px; display: flex; align-items: center; justify-content: center;
+  }
+  .empty-icon svg { width: 24px; height: 24px; stroke: var(--muted); fill: none; }
+  .empty h3 { font-size: 14px; font-weight: 500; color: var(--muted); margin-bottom: 6px; }
+  .empty p  { font-size: 12px; color: var(--muted); max-width: 320px; margin: 0 auto; }
+
+  /* ── Toast ── */
+  .toast {
+    position: fixed; bottom: 24px; right: 24px;
+    background: var(--surface2); border: 1px solid; color: var(--text);
+    font-family: var(--mono); font-size: 12px;
+    padding: 10px 18px; border-radius: 8px;
+    display: flex; align-items: center; gap: 8px;
+    transform: translateY(80px); opacity: 0;
+    transition: all 0.25s cubic-bezier(0.34,1.56,0.64,1);
+    z-index: 100;
+  }
+  .toast.show { transform: translateY(0); opacity: 1; }
+  .toast.green { border-color: var(--green); color: var(--green); }
+  .toast.red   { border-color: var(--red);   color: var(--red); }
+  .toast svg { width: 14px; height: 14px; stroke: currentColor; fill: none; }
+
+  /* ── Send-to dropdown ── */
+  .send-dropdown { position: relative; display: inline-flex; }
+
+  .send-btn-main {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 9px 16px; border-radius: 8px 0 0 8px;
+    font-family: var(--mono); font-size: 12px; font-weight: 500;
+    letter-spacing: 0.04em; cursor: pointer;
+    border: 1px solid var(--accent); border-right: none;
+    background: var(--accent); color: #fff; transition: all 0.15s;
+  }
+  .send-btn-main:hover { background: #6ba0f9; border-color: #6ba0f9; }
+  .send-btn-main svg { width: 14px; height: 14px; stroke: currentColor; fill: none; }
+
+  .send-btn-caret {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 9px 10px; border-radius: 0 8px 8px 0;
+    border: 1px solid var(--accent); background: var(--accent-dim);
+    color: var(--accent); cursor: pointer; transition: all 0.15s;
+  }
+  .send-btn-caret:hover { background: var(--accent); color: #fff; }
+  .send-btn-caret svg { width: 12px; height: 12px; stroke: currentColor; fill: none; transition: transform 0.15s; }
+  .send-btn-caret.open svg { transform: rotate(180deg); }
+
+  .send-menu {
+    display: none; position: absolute; top: calc(100% + 6px); left: 0;
+    min-width: 260px; background: var(--surface2);
+    border: 1px solid var(--border2); border-radius: 8px;
+    overflow: hidden; z-index: 50;
+    box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  }
+  .send-menu.open { display: block; animation: fadeUp 0.15s ease; }
+
+  .send-menu-header {
+    padding: 8px 12px;
+    font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--muted);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .send-menu-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 14px; cursor: pointer;
+    transition: background 0.12s; text-decoration: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .send-menu-item:last-child { border-bottom: none; }
+  .send-menu-item:hover { background: var(--surface); }
+
+  .send-menu-item.disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
+
+  .send-menu-icon {
+    width: 28px; height: 28px; border-radius: 6px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .send-menu-icon.blue   { background: var(--accent-dim); border: 1px solid rgba(79,142,247,.3); }
+  .send-menu-icon.purple { background: var(--purple-dim); border: 1px solid rgba(167,139,250,.3); }
+  .send-menu-icon.amber  { background: var(--amber-dim);  border: 1px solid rgba(245,166,35,.3); }
+  .send-menu-icon svg { width: 13px; height: 13px; stroke-width: 1.5; fill: none; }
+  .send-menu-icon.blue   svg { stroke: var(--accent); }
+  .send-menu-icon.purple svg { stroke: var(--purple); }
+  .send-menu-icon.amber  svg { stroke: var(--amber); }
+
+  .send-menu-text strong { display: block; font-size: 12px; font-weight: 500; color: var(--text); margin-bottom: 1px; }
+  .send-menu-text span   { font-size: 10px; color: var(--muted); font-family: var(--mono); }
+
+  .send-menu-badge {
+    margin-left: auto; font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em;
+    padding: 2px 7px; border-radius: 10px; flex-shrink: 0;
+  }
+  .send-menu-badge.live { background: var(--green-dim); border: 1px solid var(--green); color: var(--green); }
+  .send-menu-badge.soon { background: var(--surface); border: 1px solid var(--border2); color: var(--muted); }
+
+</style>
+</head>
+<body>
+<div class="app-shell">
+
+  <!-- ── Sidebar ── -->
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <a href="index.html" class="back-link">
+        <svg viewBox="0 0 24 24" stroke-width="2"><path d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/></svg>
+        Back to tools
+      </a>
+      <div class="sidebar-tool-name">Schema Validator</div>
+      <div class="sidebar-tool-sub">Acoustic Connect API</div>
+    </div>
+
+    <div class="sidebar-rules">
+      <div class="rules-heading">Validation rules</div>
+
+      <div class="rule-item">
+        <div class="rule-dot error"></div>
+        <div class="rule-text"><strong>Missing name</strong>Row has an empty or blank attribute name.</div>
+      </div>
+      <div class="rule-item">
+        <div class="rule-dot error"></div>
+        <div class="rule-text"><strong>Missing type</strong>Row has no type value specified.</div>
+      </div>
+      <div class="rule-item">
+        <div class="rule-dot error"></div>
+        <div class="rule-text"><strong>Invalid type</strong>Type value doesn't map to TEXT, BOOLEAN, NUMBER, or DATE.</div>
+      </div>
+      <div class="rule-item">
+        <div class="rule-dot error"></div>
+        <div class="rule-text"><strong>Duplicate name</strong>Two or more attributes share the same name (case-insensitive).</div>
+      </div>
+      <div class="rule-item">
+        <div class="rule-dot warn"></div>
+        <div class="rule-text"><strong>Name too long</strong>Attribute name exceeds 255 characters.</div>
+      </div>
+      <div class="rule-item">
+        <div class="rule-dot warn"></div>
+        <div class="rule-text"><strong>Special characters</strong>Name contains characters outside A–Z, 0–9, spaces, underscores, and hyphens.</div>
+      </div>
+      <div class="rule-item">
+        <div class="rule-dot warn"></div>
+        <div class="rule-text"><strong>Leading/trailing spaces</strong>Name has whitespace that will be trimmed.</div>
+      </div>
+      <div class="rule-item">
+        <div class="rule-dot info"></div>
+        <div class="rule-text"><strong>Large schema</strong>More than 200 attributes — consider splitting across multiple datasets.</div>
+      </div>
+    </div>
+
+    <div class="sidebar-footer">
+      Acoustic Connect API · v1
+    </div>
+  </aside>
+
+  <!-- ── Main ── -->
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar-left">
+        <div class="topbar-title">Schema Validator</div>
+        <div class="status-badge" id="status-badge">Ready</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="font-family:var(--mono);font-size:10px;color:var(--muted)" id="topbar-file"></span>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <!-- Upload row -->
+      <div class="upload-row">
+        <div class="dropzone" id="dropzone"
+          ondragover="event.preventDefault();this.classList.add('drag-over')"
+          ondragleave="this.classList.remove('drag-over')"
+          ondrop="handleDrop(event)">
+          <input type="file" accept=".xlsx,.xls" id="fileInput" onchange="handleFile(this.files[0])">
+          <div class="drop-icon-sm">
+            <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/></svg>
+          </div>
+          <div>
+            <div class="drop-text-title" id="drop-title">Drop your .xlsx schema file here</div>
+            <div class="drop-text-sub" id="drop-sub">or click to browse — column A: name, column B: type</div>
+          </div>
+        </div>
+        <button class="validate-btn" id="validate-btn" onclick="runValidation()" disabled>
+          <svg viewBox="0 0 24 24" stroke-width="2"><path d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/></svg>
+          Validate Schema
+        </button>
+      </div>
+
+      <!-- Score banner -->
+      <div class="score-banner" id="score-banner">
+        <div class="score-main">
+          <div class="score-circle" id="score-circle">—</div>
+          <div class="score-info">
+            <h3 id="score-title">—</h3>
+            <p id="score-desc">—</p>
+          </div>
+        </div>
+        <div class="score-stats">
+          <div class="score-stat">
+            <div class="score-stat-val red"   id="stat-errors">0</div>
+            <div class="score-stat-label">Errors</div>
+          </div>
+          <div class="score-stat">
+            <div class="score-stat-val amber" id="stat-warnings">0</div>
+            <div class="score-stat-label">Warnings</div>
+          </div>
+          <div class="score-stat">
+            <div class="score-stat-val green" id="stat-valid">0</div>
+            <div class="score-stat-label">Valid rows</div>
+          </div>
+          <div class="score-stat">
+            <div class="score-stat-val muted" id="stat-total">0</div>
+            <div class="score-stat-label">Total</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Results -->
+      <div class="results-section" id="results-section">
+
+        <!-- Errors -->
+        <div id="errors-block"></div>
+
+        <!-- Warnings -->
+        <div id="warnings-block"></div>
+
+        <!-- Info -->
+        <div id="info-block"></div>
+
+        <!-- Valid attributes table -->
+        <div id="valid-block"></div>
+
+        <!-- Actions -->
+        <div class="action-row" id="action-row">
+          <div class="send-dropdown" id="send-dropdown">
+            <button class="send-btn-main" onclick="sendToTool('acoustic_addcontactattributs_mutation.html')">
+              <svg viewBox="0 0 24 24" stroke-width="2"><path d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5"/></svg>
+              Open in Mutation Builder
+            </button>
+            <button class="send-btn-caret" id="send-caret" onclick="toggleSendMenu(event)">
+              <svg viewBox="0 0 24 24" stroke-width="2.5"><path d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
+            </button>
+            <div class="send-menu" id="send-menu">
+              <div class="send-menu-header">Send schema to tool</div>
+              <div class="send-menu-item" onclick="sendToTool('acoustic_addcontactattributs_mutation.html')">
+                <div class="send-menu-icon blue"><svg viewBox="0 0 24 24"><path d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5"/></svg></div>
+                <div class="send-menu-text">
+                  <strong>Add Contact Attributes</strong>
+                  <span>updateDataSet · bulk create</span>
+                </div>
+                <span class="send-menu-badge live">Live</span>
+              </div>
+              <div class="send-menu-item disabled">
+                <div class="send-menu-icon purple"><svg viewBox="0 0 24 24"><path d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 2.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125"/></svg></div>
+                <div class="send-menu-text">
+                  <strong>Dataset Inspector</strong>
+                  <span>Browse &amp; compare datasets</span>
+                </div>
+                <span class="send-menu-badge soon">Soon</span>
+              </div>
+              <div class="send-menu-item disabled">
+                <div class="send-menu-icon amber"><svg viewBox="0 0 24 24"><path d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/></svg></div>
+                <div class="send-menu-text">
+                  <strong>Bulk Contact Import</strong>
+                  <span>CSV → upsert mutation</span>
+                </div>
+                <span class="send-menu-badge soon">Soon</span>
+              </div>
+            </div>
+          </div>
+          <button class="btn btn-secondary" onclick="downloadReport()">
+            <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+            Download Report
+          </button>
+          <button class="btn btn-secondary" onclick="resetAll()">
+            <svg viewBox="0 0 24 24" stroke-width="2"><path d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+            Validate another
+          </button>
+        </div>
+      </div>
+
+      <!-- Empty state -->
+      <div class="empty" id="empty-state">
+        <div class="empty-icon">
+          <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/></svg>
+        </div>
+        <h3>No schema loaded</h3>
+        <p>Upload an .xlsx mapping file to validate it against the Acoustic Connect API spec.</p>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast">
+  <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+  <span id="toast-msg">Done</span>
+</div>
+
+<script>
+const VALID_TYPES = {
+  'TEXT':true,'STRING':true,'text':true,'string':true,
+  'TRUE/FALSE':true,'BOOLEAN':true,'boolean':true,
+  'NUMBER':true,'number':true,
+  'DATE':true,'date':true,
+};
+
+function resolveType(raw) {
+  const u = (raw||'').trim().toUpperCase();
+  if (u==='TEXT'||u==='STRING') return 'TEXT';
+  if (u==='TRUE/FALSE'||u==='BOOLEAN') return 'BOOLEAN';
+  if (u==='NUMBER') return 'NUMBER';
+  if (u==='DATE') return 'DATE';
+  return null;
+}
+
+function hasSpecialChars(name) {
+  return /[^a-zA-Z0-9 _\-\.]/.test(name);
+}
+
+let rawAttrs = [];
+let fileName = '';
+let validationResult = null;
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('dropzone').classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) handleFile(file);
+}
+
+function handleFile(file) {
+  if (!file) return;
+  fileName = file.name;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const wb = XLSX.read(e.target.result, { type: 'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+    rawAttrs = rows.slice(1).map((r, i) => ({
+      row: i + 2,
+      name: r[0] !== undefined ? String(r[0]) : '',
+      rawType: r[1] !== undefined ? String(r[1]).trim() : '',
+    })).filter(r => r.name.trim() !== '' || r.rawType !== '');
+
+    document.getElementById('drop-title').textContent = file.name;
+    document.getElementById('drop-sub').textContent = rawAttrs.length + ' rows found — click Validate Schema';
+    document.getElementById('validate-btn').disabled = false;
+    document.getElementById('topbar-file').textContent = file.name;
+    document.getElementById('empty-state').style.display = 'none';
+    showToast(rawAttrs.length + ' rows loaded', 'green');
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function runValidation() {
+  if (!rawAttrs.length) return;
+
+  const errors   = [];
+  const warnings = [];
+  const infos    = [];
+  const valid    = [];
+  const seenNames = {};
+
+  rawAttrs.forEach(attr => {
+    const name     = attr.name;
+    const trimmed  = name.trim();
+    const rawType  = attr.rawType;
+    const resolved = resolveType(rawType);
+    const rowIssues = { error: [], warn: [] };
+
+    // ── Errors ──
+    if (!trimmed) {
+      rowIssues.error.push({ code: 'MISSING_NAME', fix: 'Add a name' });
+    }
+    if (!rawType) {
+      rowIssues.error.push({ code: 'MISSING_TYPE', fix: 'Add a type' });
+    } else if (!resolved) {
+      rowIssues.error.push({ code: 'INVALID_TYPE', fix: `"${rawType}" → use TEXT, BOOLEAN, NUMBER, or DATE` });
+    }
+    if (trimmed) {
+      const key = trimmed.toLowerCase();
+      if (seenNames[key]) {
+        rowIssues.error.push({ code: 'DUPLICATE_NAME', fix: `Duplicate of row ${seenNames[key]}` });
+      } else {
+        seenNames[key] = attr.row;
+      }
+    }
+
+    // ── Warnings ──
+    if (trimmed.length > 255) {
+      rowIssues.warn.push({ code: 'NAME_TOO_LONG', fix: 'Shorten to ≤255 chars' });
+    }
+    if (trimmed && hasSpecialChars(trimmed)) {
+      rowIssues.warn.push({ code: 'SPECIAL_CHARS', fix: 'Use A–Z, 0–9, spaces, _ or -' });
+    }
+    if (name !== trimmed && trimmed) {
+      rowIssues.warn.push({ code: 'WHITESPACE', fix: 'Trim leading/trailing spaces' });
+    }
+
+    const hasError = rowIssues.error.length > 0;
+    const hasWarn  = rowIssues.warn.length > 0;
+
+    if (hasError) {
+      rowIssues.error.forEach(e => {
+        let group = errors.find(g => g.code === e.code);
+        if (!group) { group = { code: e.code, rows: [] }; errors.push(group); }
+        group.rows.push({ row: attr.row, name: trimmed || '(empty)', rawType, fix: e.fix });
+      });
+    }
+    if (hasWarn) {
+      rowIssues.warn.forEach(w => {
+        let group = warnings.find(g => g.code === w.code);
+        if (!group) { group = { code: w.code, rows: [] }; warnings.push(group); }
+        group.rows.push({ row: attr.row, name: trimmed, rawType, fix: w.fix });
+      });
+    }
+    if (!hasError) {
+      valid.push({ row: attr.row, name: trimmed, rawType, type: resolved });
+    }
+  });
+
+  // Info
+  if (rawAttrs.length > 200) {
+    infos.push({ code: 'LARGE_SCHEMA', message: `Schema has ${rawAttrs.length} attributes. Consider splitting datasets for schemas over 200 attributes.` });
+  }
+
+  validationResult = { errors, warnings, infos, valid, total: rawAttrs.length };
+  renderResults(validationResult);
+}
+
+const ERROR_LABELS = {
+  MISSING_NAME:   { title: 'Missing attribute name', desc: 'These rows have an empty or blank name in column A.' },
+  MISSING_TYPE:   { title: 'Missing type value',     desc: 'These rows have no type specified in column B.' },
+  INVALID_TYPE:   { title: 'Invalid type value',     desc: 'These type values don\'t map to TEXT, BOOLEAN, NUMBER, or DATE.' },
+  DUPLICATE_NAME: { title: 'Duplicate attribute names', desc: 'These names appear more than once (case-insensitive). Each attribute must be unique.' },
+};
+
+const WARN_LABELS = {
+  NAME_TOO_LONG:  { title: 'Attribute name too long', desc: 'Names must be 255 characters or fewer.' },
+  SPECIAL_CHARS:  { title: 'Special characters in name', desc: 'Names should only contain A–Z, 0–9, spaces, underscores, or hyphens.' },
+  WHITESPACE:     { title: 'Leading or trailing whitespace', desc: 'Names have extra whitespace that will be trimmed automatically.' },
+};
+
+function renderResults(r) {
+  const totalErrors   = r.errors.reduce((s,g) => s + g.rows.length, 0);
+  const totalWarnings = r.warnings.reduce((s,g) => s + g.rows.length, 0);
+
+  // Score banner
+  const banner = document.getElementById('score-banner');
+  const circle = document.getElementById('score-circle');
+  banner.classList.add('visible');
+
+  if (totalErrors > 0) {
+    circle.className = 'score-circle fail';
+    circle.textContent = '✗';
+    document.getElementById('score-title').textContent = 'Schema has errors';
+    document.getElementById('score-desc').textContent  = `${totalErrors} error${totalErrors>1?'s':''} must be fixed before generating a mutation.`;
+    document.getElementById('status-badge').textContent = 'Failed';
+    document.getElementById('status-badge').className   = 'status-badge fail';
+  } else if (totalWarnings > 0) {
+    circle.className = 'score-circle warn';
+    circle.textContent = '!';
+    document.getElementById('score-title').textContent = 'Schema is valid with warnings';
+    document.getElementById('score-desc').textContent  = `${totalWarnings} warning${totalWarnings>1?'s':''} — review before proceeding.`;
+    document.getElementById('status-badge').textContent = 'Warnings';
+    document.getElementById('status-badge').className   = 'status-badge warn';
+  } else {
+    circle.className = 'score-circle pass';
+    circle.textContent = '✓';
+    document.getElementById('score-title').textContent = 'Schema is valid';
+    document.getElementById('score-desc').textContent  = 'All attributes passed validation. Ready to generate a mutation.';
+    document.getElementById('status-badge').textContent = 'Passed';
+    document.getElementById('status-badge').className   = 'status-badge pass';
+  }
+
+  document.getElementById('stat-errors').textContent   = totalErrors;
+  document.getElementById('stat-warnings').textContent = totalWarnings;
+  document.getElementById('stat-valid').textContent    = r.valid.length;
+  document.getElementById('stat-total').textContent    = r.total;
+
+  // Errors block
+  document.getElementById('errors-block').innerHTML = r.errors.length
+    ? renderIssueBlock('Errors', r.errors, ERROR_LABELS, 'error', 'red')
+    : '';
+
+  // Warnings block
+  document.getElementById('warnings-block').innerHTML = r.warnings.length
+    ? renderIssueBlock('Warnings', r.warnings, WARN_LABELS, 'warn', 'amber')
+    : '';
+
+  // Info block
+  document.getElementById('info-block').innerHTML = r.infos.length
+    ? `<div class="section-title" style="margin-top:8px">Info</div>` +
+      r.infos.map(i => `
+        <div class="issue-list">
+          <div class="issue-card info">
+            <div class="issue-icon info"><svg viewBox="0 0 24 24" stroke-width="2"><path d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"/></svg></div>
+            <div class="issue-body">
+              <div class="issue-title">Large schema</div>
+              <div class="issue-desc">${i.message}</div>
+            </div>
+          </div>
+        </div>
+      `).join('')
+    : '';
+
+  // Valid table
+  document.getElementById('valid-block').innerHTML = r.valid.length
+    ? `<div class="section-title" style="margin-top:${r.errors.length||r.warnings.length?'8px':'0'}">
+         Valid attributes <span class="count green">${r.valid.length}</span>
+       </div>
+       <div class="clean-table-wrap">
+         <div class="clean-scroll">
+           <table class="clean-table">
+             <thead><tr><th>#</th><th>Attribute name</th><th>Raw type</th><th>Resolved type</th><th></th></tr></thead>
+             <tbody>
+               ${r.valid.map((a,i) => `
+                 <tr>
+                   <td class="col-num">${a.row}</td>
+                   <td class="col-mono">${escHtml(a.name)}</td>
+                   <td class="col-mono" style="color:var(--muted)">${escHtml(a.rawType)}</td>
+                   <td><span class="type-badge ${a.type}">${a.type}</span></td>
+                   <td><span class="ok-dot"><svg viewBox="0 0 24 24" stroke-width="2.5"><path d="M4.5 12.75l6 6 9-13.5"/></svg></span></td>
+                 </tr>
+               `).join('')}
+             </tbody>
+           </table>
+         </div>
+         <div class="table-footer">
+           <span>${r.valid.length} of ${r.total} rows are valid</span>
+           <span style="color:var(--green)">${Math.round(r.valid.length/r.total*100)}% pass rate</span>
+         </div>
+       </div>`
+    : '';
+
+  document.getElementById('results-section').classList.add('visible');
+  document.getElementById('action-row').style.display = totalErrors > 0 ? 'flex' : 'flex';
+
+  showToast(
+    totalErrors > 0
+      ? `${totalErrors} error${totalErrors>1?'s':''} found`
+      : totalWarnings > 0
+        ? `Valid with ${totalWarnings} warning${totalWarnings>1?'s':''}`
+        : 'All clear — schema is valid',
+    totalErrors > 0 ? 'red' : 'green'
+  );
+}
+
+function renderIssueBlock(label, groups, labelMap, cls, countColor) {
+  const total = groups.reduce((s,g) => s + g.rows.length, 0);
+  return `
+    <div class="section-title" style="margin-bottom:10px">
+      ${label} <span class="count ${countColor}">${total}</span>
+    </div>
+    <div class="issue-list">
+      ${groups.map(g => {
+        const lbl = labelMap[g.code] || { title: g.code, desc: '' };
+        const preview = g.rows.slice(0, 5);
+        const more = g.rows.length - preview.length;
+        return `
+          <div class="issue-card ${cls}">
+            <div class="issue-icon ${cls}">
+              ${cls === 'error'
+                ? `<svg viewBox="0 0 24 24" stroke-width="2"><path d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>`
+                : `<svg viewBox="0 0 24 24" stroke-width="2"><path d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>`
+              }
+            </div>
+            <div class="issue-body">
+              <div class="issue-title">${lbl.title}</div>
+              <div class="issue-desc">${lbl.desc}</div>
+              <div class="issue-rows">
+                ${preview.map(r => `
+                  <div class="issue-row">
+                    <span class="row-num">row ${r.row}</span>
+                    <span class="row-name">${escHtml(r.name || '(empty)')}</span>
+                    <span class="row-detail">${escHtml(r.rawType || '')}</span>
+                    <span class="row-fix">${escHtml(r.fix)}</span>
+                  </div>
+                `).join('')}
+                ${more > 0 ? `<button class="show-more" onclick="expandGroup(this, '${g.code}', '${cls}')">${more} more row${more>1?'s':''} — show all</button>` : ''}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function expandGroup(btn, code, cls) {
+  const allGroups = cls === 'error' ? validationResult.errors : validationResult.warnings;
+  const group = allGroups.find(g => g.code === code);
+  if (!group) return;
+  const container = btn.previousElementSibling;
+  const remaining = group.rows.slice(5);
+  remaining.forEach(r => {
+    const div = document.createElement('div');
+    div.className = 'issue-row';
+    div.innerHTML = `
+      <span class="row-num">row ${r.row}</span>
+      <span class="row-name">${escHtml(r.name || '(empty)')}</span>
+      <span class="row-detail">${escHtml(r.rawType || '')}</span>
+      <span class="row-fix">${escHtml(r.fix)}</span>
+    `;
+    container.appendChild(div);
+  });
+  btn.remove();
+}
+
+function downloadReport() {
+  if (!validationResult) return;
+  const r = validationResult;
+  const lines = [
+    '# Acoustic Connect — Schema Validation Report',
+    `File: ${fileName}`,
+    `Date: ${new Date().toISOString()}`,
+    '',
+    `## Summary`,
+    `Total rows:  ${r.total}`,
+    `Valid:       ${r.valid.length}`,
+    `Errors:      ${r.errors.reduce((s,g)=>s+g.rows.length,0)}`,
+    `Warnings:    ${r.warnings.reduce((s,g)=>s+g.rows.length,0)}`,
+    '',
+  ];
+
+  if (r.errors.length) {
+    lines.push('## Errors');
+    r.errors.forEach(g => {
+      const lbl = { MISSING_NAME:'Missing name', MISSING_TYPE:'Missing type', INVALID_TYPE:'Invalid type', DUPLICATE_NAME:'Duplicate name' };
+      lines.push(`\n### ${lbl[g.code]||g.code}`);
+      g.rows.forEach(rr => lines.push(`  Row ${rr.row}: "${rr.name}" — ${rr.fix}`));
+    });
+    lines.push('');
+  }
+
+  if (r.warnings.length) {
+    lines.push('## Warnings');
+    r.warnings.forEach(g => {
+      const lbl = { NAME_TOO_LONG:'Name too long', SPECIAL_CHARS:'Special characters', WHITESPACE:'Whitespace' };
+      lines.push(`\n### ${lbl[g.code]||g.code}`);
+      g.rows.forEach(rr => lines.push(`  Row ${rr.row}: "${rr.name}" — ${rr.fix}`));
+    });
+    lines.push('');
+  }
+
+  if (r.valid.length) {
+    lines.push('## Valid Attributes');
+    r.valid.forEach(a => lines.push(`  Row ${a.row}: "${a.name}" → ${a.type}`));
+  }
+
+  const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = 'schema-validation-report.txt'; a.click();
+  URL.revokeObjectURL(url);
+  showToast('Report downloaded', 'green');
+}
+
+function resetAll() {
+  rawAttrs = []; validationResult = null; fileName = '';
+  document.getElementById('fileInput').value = '';
+  document.getElementById('drop-title').textContent = 'Drop your .xlsx schema file here';
+  document.getElementById('drop-sub').textContent   = 'or click to browse — column A: name, column B: type';
+  document.getElementById('validate-btn').disabled  = true;
+  document.getElementById('topbar-file').textContent = '';
+  document.getElementById('score-banner').classList.remove('visible');
+  document.getElementById('results-section').classList.remove('visible');
+  document.getElementById('status-badge').textContent = 'Ready';
+  document.getElementById('status-badge').className  = 'status-badge';
+  document.getElementById('empty-state').style.display = 'block';
+  ['errors-block','warnings-block','info-block','valid-block'].forEach(id => {
+    document.getElementById(id).innerHTML = '';
+  });
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function showToast(msg, color) {
+  const t = document.getElementById('toast');
+  t.className = 'toast ' + (color||'green');
+  document.getElementById('toast-msg').textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+</script>
+</body>
+</html>

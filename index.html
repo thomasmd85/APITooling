@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Acoustic — Developer Tools</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0d0f12;
+    --surface:   #13161b;
+    --surface2:  #1a1e25;
+    --border:    #252a33;
+    --border2:   #2e3540;
+    --text:      #e8eaf0;
+    --muted:     #7a8494;
+    --accent:    #4f8ef7;
+    --accent-dim:#1e3260;
+    --green:     #3ecf8e;
+    --green-dim: #0d3326;
+    --amber:     #f5a623;
+    --purple:    #a78bfa;
+    --purple-dim:#2d1f5e;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'IBM Plex Sans', sans-serif;
+  }
+
+  html { font-size: 14px; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-weight: 300;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Grid lines background ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(79,142,247,.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(79,142,247,.03) 1px, transparent 1px);
+    background-size: 48px 48px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── Header ── */
+  header {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 48px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .logo-mark {
+    width: 32px;
+    height: 32px;
+    background: var(--accent-dim);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .logo-mark svg { width: 16px; height: 16px; stroke: var(--accent); fill: none; }
+
+  .logo-text {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    letter-spacing: 0.04em;
+  }
+
+  .logo-sub {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-top: 1px;
+  }
+
+  .header-badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border: 1px solid var(--border2);
+    padding: 4px 12px;
+    border-radius: 20px;
+    background: var(--surface2);
+  }
+
+  /* ── Hero ── */
+  .hero {
+    position: relative;
+    z-index: 1;
+    padding: 80px 48px 64px;
+    max-width: 960px;
+    margin: 0 auto;
+    width: 100%;
+  }
+
+  .hero-eyebrow {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .hero-eyebrow::before {
+    content: '';
+    display: inline-block;
+    width: 20px;
+    height: 1px;
+    background: var(--accent);
+  }
+
+  .hero-title {
+    font-family: var(--sans);
+    font-size: 42px;
+    font-weight: 300;
+    line-height: 1.15;
+    color: var(--text);
+    margin-bottom: 20px;
+    letter-spacing: -0.02em;
+  }
+
+  .hero-title strong {
+    font-weight: 500;
+    color: #fff;
+  }
+
+  .hero-desc {
+    font-size: 15px;
+    color: var(--muted);
+    max-width: 540px;
+    line-height: 1.7;
+    margin-bottom: 40px;
+  }
+
+  .hero-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  /* ── Buttons ── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 22px;
+    border-radius: 8px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: all 0.15s;
+    border: 1px solid;
+    text-decoration: none;
+  }
+
+  .btn svg { width: 15px; height: 15px; stroke: currentColor; fill: none; flex-shrink: 0; }
+
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  .btn-primary:hover { background: #6ba0f9; border-color: #6ba0f9; transform: translateY(-1px); box-shadow: 0 8px 24px rgba(79,142,247,.25); }
+  .btn-primary:active { transform: scale(0.98); }
+
+  .btn-ghost {
+    background: transparent;
+    border-color: var(--border2);
+    color: var(--muted);
+  }
+
+  .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Divider ── */
+  .divider {
+    position: relative;
+    z-index: 1;
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 0 48px;
+  }
+
+  /* ── Tools grid ── */
+  .tools-section {
+    position: relative;
+    z-index: 1;
+    padding: 48px 48px 64px;
+    max-width: 960px;
+    margin: 0 auto;
+    width: 100%;
+  }
+
+  .section-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .section-label::after {
+    content: '';
+    flex: 1;
+    border-top: 1px solid var(--border);
+  }
+
+  .tools-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+  }
+
+  .tool-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    text-decoration: none;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+  }
+
+  .tool-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--accent);
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.25s ease;
+  }
+
+  .tool-card:hover {
+    border-color: var(--border2);
+    background: var(--surface2);
+    transform: translateY(-2px);
+  }
+
+  .tool-card:hover::before { transform: scaleX(1); }
+
+  .tool-card.featured {
+    border-color: var(--accent-dim);
+    background: linear-gradient(135deg, var(--surface) 0%, rgba(30,50,96,.4) 100%);
+  }
+
+  .tool-card.featured::before { transform: scaleX(1); }
+
+  .tool-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .tool-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .tool-icon.blue   { background: var(--accent-dim); border: 1px solid rgba(79,142,247,.3); }
+  .tool-icon.green  { background: var(--green-dim);  border: 1px solid rgba(62,207,142,.3); }
+  .tool-icon.purple { background: var(--purple-dim); border: 1px solid rgba(167,139,250,.3); }
+  .tool-icon.amber  { background: rgba(245,166,35,.1); border: 1px solid rgba(245,166,35,.3); }
+
+  .tool-icon.blue   svg { stroke: var(--accent); }
+  .tool-icon.green  svg { stroke: var(--green); }
+  .tool-icon.purple svg { stroke: var(--purple); }
+  .tool-icon.amber  svg { stroke: var(--amber); }
+
+  .tool-icon svg { width: 17px; height: 17px; stroke-width: 1.5; fill: none; }
+
+  .tool-status {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 20px;
+    flex-shrink: 0;
+  }
+
+  .tool-status.live    { background: var(--green-dim); border: 1px solid var(--green); color: var(--green); }
+  .tool-status.soon    { background: var(--surface2); border: 1px solid var(--border2); color: var(--muted); }
+
+  .tool-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+
+  .tool-desc {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+
+  .tool-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: auto;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+
+  .tool-tags {
+    display: flex;
+    gap: 6px;
+  }
+
+  .tool-tag {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    padding: 2px 7px;
+    border-radius: 3px;
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    color: var(--muted);
+  }
+
+  .tool-arrow {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+  }
+
+  .tool-card:hover .tool-arrow {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+  }
+
+  .tool-arrow svg { width: 13px; height: 13px; stroke: var(--muted); }
+  .tool-card:hover .tool-arrow svg { stroke: var(--accent); }
+
+  /* ── Footer ── */
+  footer {
+    position: relative;
+    z-index: 1;
+    margin-top: auto;
+    padding: 20px 48px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+  }
+
+  .footer-links { display: flex; gap: 24px; }
+  .footer-links a { color: var(--muted); text-decoration: none; transition: color 0.15s; }
+  .footer-links a:hover { color: var(--text); }
+
+  /* ── Animations ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .hero-eyebrow { animation: fadeUp 0.4s ease both; }
+  .hero-title   { animation: fadeUp 0.4s 0.08s ease both; }
+  .hero-desc    { animation: fadeUp 0.4s 0.14s ease both; }
+  .hero-actions { animation: fadeUp 0.4s 0.20s ease both; }
+  .tools-section { animation: fadeUp 0.4s 0.28s ease both; }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div class="logo">
+    <div class="logo-mark">
+      <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25zm.75-12h9v9h-9v-9z"/></svg>
+    </div>
+    <div>
+      <div class="logo-text">Acoustic</div>
+      <div class="logo-sub">Developer Tools</div>
+    </div>
+  </div>
+  <div class="header-badge">Connect API · v1</div>
+</header>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-eyebrow">Acoustic Connect</div>
+  <h1 class="hero-title">
+    API tooling for<br>
+    <strong>data teams</strong>
+  </h1>
+  <p class="hero-desc">
+    Utilities for building, validating, and exporting Acoustic Connect API payloads — without writing code. Upload a schema, configure your options, and generate production-ready mutations in seconds.
+  </p>
+  <div class="hero-actions">
+    <a href="acoustic_addcontactattributs_mutation.html" class="btn btn-primary" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24" stroke-width="2"><path d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5"/></svg>
+      Open Add Contact Attributes Mutation Builder
+    </a>
+    <a href="#tools" class="btn btn-ghost">
+      <svg viewBox="0 0 24 24" stroke-width="2"><path d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
+      View all tools
+    </a>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- Tools Grid -->
+<section class="tools-section" id="tools">
+  <div class="section-label">Available tools</div>
+
+  <div class="tools-grid">
+
+    <!-- Mutation Builder — LIVE -->
+    <a href="acoustic_addcontactattributs_mutation.html" class="tool-card featured" style="text-decoration:none" target="_blank" rel="noopener">
+      <div class="tool-card-header">
+        <div class="tool-icon blue">
+          <svg viewBox="0 0 24 24"><path d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5"/></svg>
+        </div>
+        <span class="tool-status live">Live</span>
+      </div>
+      <div>
+        <div class="tool-name">Add Contact Attributes Mutation Builder</div>
+        <div class="tool-desc">Upload an Excel attribute schema and generate a ready-to-execute <code style="font-family:var(--mono);color:var(--purple);font-size:11px">updateDataSet</code> GraphQL mutation for Acoustic Connect.</div>
+      </div>
+      <div class="tool-meta">
+        <div class="tool-tags">
+          <span class="tool-tag">GraphQL</span>
+          <span class="tool-tag">xlsx</span>
+          <span class="tool-tag">Contact Attributes</span>
+        </div>
+        <div class="tool-arrow">
+          <svg viewBox="0 0 24 24" stroke-width="2"><path d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/></svg>
+        </div>
+      </div>
+    </a>
+
+    <!-- Schema Validator — LIVE -->
+    <a href="schema-validator.html" class="tool-card" style="text-decoration:none" target="_blank" rel="noopener">
+      <div class="tool-card-header">
+        <div class="tool-icon green">
+          <svg viewBox="0 0 24 24"><path d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/></svg>
+        </div>
+        <span class="tool-status live">Live</span>
+      </div>
+      <div>
+        <div class="tool-name">Schema Validator</div>
+        <div class="tool-desc">Validate your attribute schema against the Acoustic Connect API spec before executing — catch type mismatches, duplicates, and missing required fields.</div>
+      </div>
+      <div class="tool-meta">
+        <div class="tool-tags">
+          <span class="tool-tag">Validation</span>
+          <span class="tool-tag">Schema</span>
+          <span class="tool-tag">xlsx</span>
+        </div>
+        <div class="tool-arrow">
+          <svg viewBox="0 0 24 24" stroke-width="2"><path d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/></svg>
+        </div>
+      </div>
+    </a>
+
+    <!-- Dataset Inspector — Coming soon -->
+    <div class="tool-card" style="opacity:.6;cursor:default">
+      <div class="tool-card-header">
+        <div class="tool-icon purple">
+          <svg viewBox="0 0 24 24"><path d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 2.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125"/></svg>
+        </div>
+        <span class="tool-status soon">Coming soon</span>
+      </div>
+      <div>
+        <div class="tool-name">Dataset Inspector</div>
+        <div class="tool-desc">Browse existing datasets and their attributes. Compare schemas across environments and export diffs as migration scripts.</div>
+      </div>
+      <div class="tool-meta">
+        <div class="tool-tags">
+          <span class="tool-tag">Datasets</span>
+          <span class="tool-tag">Inspect</span>
+        </div>
+        <div class="tool-arrow">
+          <svg viewBox="0 0 24 24" stroke-width="2"><path d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/></svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bulk Contact Import — Coming soon -->
+    <div class="tool-card" style="opacity:.6;cursor:default">
+      <div class="tool-card-header">
+        <div class="tool-icon amber">
+          <svg viewBox="0 0 24 24"><path d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/></svg>
+        </div>
+        <span class="tool-status soon">Coming soon</span>
+      </div>
+      <div>
+        <div class="tool-name">Bulk Contact Import</div>
+        <div class="tool-desc">Map CSV columns to contact attributes and generate a batch upsert mutation for bulk contact creation or updates.</div>
+      </div>
+      <div class="tool-meta">
+        <div class="tool-tags">
+          <span class="tool-tag">Contacts</span>
+          <span class="tool-tag">CSV</span>
+          <span class="tool-tag">Bulk</span>
+        </div>
+        <div class="tool-arrow">
+          <svg viewBox="0 0 24 24" stroke-width="2"><path d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/></svg>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <span>Acoustic Connect API · Developer Tools</span>
+  <div class="footer-links">
+    <a href="https://docs.acoustic.com" target="_blank">Docs</a>
+    <a href="https://acoustic.com" target="_blank">Acoustic.com</a>
+  </div>
+</footer>
+
+</body>
+</html>

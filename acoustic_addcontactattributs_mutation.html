@@ -1,0 +1,1273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Acoustic — Contact Attribute Mutation Builder</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js">
+// ── Auto-load from Schema Validator transfer ──
+(function() {
+  const raw = sessionStorage.getItem('acoustic_schema_transfer');
+  if (!raw) return;
+  try {
+    const payload = JSON.parse(raw);
+    sessionStorage.removeItem('acoustic_schema_transfer');
+    if (!payload.attrs || !payload.attrs.length) return;
+
+    const name = payload.fileName || 'Imported schema';
+
+    function applyAttrs(parsedAttrs) {
+      attrs = parsedAttrs;
+
+      document.getElementById('file-loaded').style.display = 'flex';
+      document.getElementById('file-loaded-name').textContent = name;
+      document.getElementById('file-loaded-count').textContent = attrs.length + ' attributes loaded from Schema Validator';
+      document.getElementById('pill-file').textContent = name;
+      document.getElementById('pill-file').classList.add('has-data');
+      document.getElementById('pill-total').textContent = attrs.length + ' attributes';
+      document.getElementById('pill-total').classList.add('has-data');
+
+      const btn = document.getElementById('btn-next-1');
+      btn.style.opacity = '1';
+      btn.style.pointerEvents = 'auto';
+
+      document.querySelector('.drop-title').textContent = name;
+      document.querySelector('.drop-sub').textContent = attrs.length + ' attributes loaded from Schema Validator';
+
+      markDone('upload');
+      renderLegend();
+      renderTable();
+      goTo('configure');
+      showToast(attrs.length + ' attributes loaded from Schema Validator');
+    }
+
+    if (payload.fileBase64) {
+      // Re-parse the original file through XLSX — identical to a fresh upload
+      const base64Data = payload.fileBase64.split(',')[1];
+      const binary = atob(base64Data);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const wb = XLSX.read(bytes.buffer, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      const parsed = rows.slice(1).filter(r => r[0]).map(r => ({
+        name: String(r[0]).trim(),
+        raw:  String(r[1] || '').trim(),
+        type: (function(v) {
+          const u = (v||'').trim().toUpperCase();
+          if (u==='TEXT'||u==='STRING') return 'TEXT';
+          if (u==='TRUE/FALSE'||u==='BOOLEAN') return 'BOOLEAN';
+          if (u==='NUMBER') return 'NUMBER';
+          if (u==='DATE') return 'DATE';
+          return 'TEXT';
+        })(String(r[1]||''))
+      }));
+      applyAttrs(parsed);
+    } else {
+      // Fallback: use pre-parsed attrs passed from validator
+      applyAttrs(payload.attrs.map(a => ({ name: a.name, raw: a.rawType || a.raw, type: a.type })));
+    }
+  } catch(e) { console.warn('Transfer parse error', e); }
+})();
+
+</script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0d0f12;
+    --surface:   #13161b;
+    --surface2:  #1a1e25;
+    --border:    #252a33;
+    --border2:   #2e3540;
+    --text:      #e8eaf0;
+    --muted:     #7a8494;
+    --accent:    #4f8ef7;
+    --accent-dim:#1e3260;
+    --green:     #3ecf8e;
+    --green-dim: #0d3326;
+    --amber:     #f5a623;
+    --amber-dim: #3d2800;
+    --purple:    #a78bfa;
+    --purple-dim:#2d1f5e;
+    --red:       #f56565;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'IBM Plex Sans', sans-serif;
+    --radius: 8px;
+    --radius-lg: 12px;
+  }
+
+  html { font-size: 14px; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-weight: 300;
+    min-height: 100vh;
+    line-height: 1.6;
+  }
+
+  /* ── Layout ── */
+  .app-shell {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    min-height: 100vh;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  .sidebar-logo {
+    padding: 24px 20px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sidebar-logo .wordmark {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  .sidebar-logo .tagline {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 3px;
+  }
+
+  .step-nav {
+    padding: 20px 0;
+    flex: 1;
+  }
+
+  .step-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 20px;
+    cursor: pointer;
+    transition: background 0.15s;
+    position: relative;
+  }
+
+  .step-item:hover { background: var(--surface2); }
+  .step-item.active { background: var(--surface2); }
+
+  .step-item.active::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 2px;
+    background: var(--accent);
+  }
+
+  .step-num {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    flex-shrink: 0;
+    margin-top: 1px;
+    transition: all 0.2s;
+  }
+
+  .step-item.active .step-num,
+  .step-item.done .step-num {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .step-item.done .step-num {
+    background: var(--green-dim);
+    border-color: var(--green);
+    color: var(--green);
+  }
+
+  .step-label { font-size: 12px; }
+  .step-label strong { display: block; font-weight: 500; color: var(--text); margin-bottom: 1px; }
+  .step-label span { font-size: 11px; color: var(--muted); }
+
+  .step-item.active .step-label strong { color: var(--accent); }
+  .step-item.done .step-label strong { color: var(--green); }
+
+  .sidebar-footer {
+    padding: 16px 20px;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  /* ── Main ── */
+  .main {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .topbar {
+    padding: 16px 32px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--surface);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+
+  .topbar-title {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+
+  .stat-pills {
+    display: flex;
+    gap: 8px;
+  }
+
+  .stat-pill {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    border: 1px solid var(--border2);
+    color: var(--muted);
+    background: var(--surface2);
+  }
+
+  .stat-pill.has-data { color: var(--text); border-color: var(--accent); background: var(--accent-dim); }
+
+  /* ── Content panels ── */
+  .content { padding: 32px; flex: 1; }
+
+  .panel {
+    display: none;
+    animation: fadeIn 0.2s ease;
+  }
+
+  .panel.active { display: block; }
+
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+  .panel-heading {
+    margin-bottom: 24px;
+  }
+
+  .panel-heading h2 {
+    font-family: var(--mono);
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+
+  .panel-heading p {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  /* ── Drop zone ── */
+  .dropzone {
+    border: 1.5px dashed var(--border2);
+    border-radius: var(--radius-lg);
+    padding: 48px 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: var(--surface);
+    position: relative;
+  }
+
+  .dropzone:hover, .dropzone.drag-over {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+  }
+
+  .dropzone input[type=file] {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+  }
+
+  .drop-icon {
+    width: 40px;
+    height: 40px;
+    margin: 0 auto 14px;
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .drop-icon svg { width: 18px; height: 18px; stroke: var(--muted); fill: none; }
+
+  .drop-title { font-size: 14px; font-weight: 500; color: var(--text); margin-bottom: 4px; }
+  .drop-sub { font-size: 12px; color: var(--muted); }
+
+  .drop-accepted {
+    display: inline-block;
+    margin-top: 12px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 3px 10px;
+    border-radius: 20px;
+  }
+
+  .file-loaded {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    background: var(--green-dim);
+    border: 1px solid var(--green);
+    border-radius: var(--radius);
+    margin-top: 16px;
+  }
+
+  .file-loaded svg { width: 16px; height: 16px; stroke: var(--green); flex-shrink: 0; }
+  .file-loaded-name { font-family: var(--mono); font-size: 12px; color: var(--green); flex: 1; }
+  .file-loaded-count { font-size: 11px; color: var(--muted); }
+
+  .btn-reupload {
+    font-size: 11px;
+    color: var(--muted);
+    background: none;
+    border: 1px solid var(--border2);
+    padding: 3px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: var(--mono);
+    transition: all 0.15s;
+  }
+
+  .btn-reupload:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Config fields ── */
+  .config-grid {
+    display: grid;
+    grid-template-columns: 1fr 160px;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  .field-group { display: flex; flex-direction: column; gap: 6px; }
+
+  .field-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .field-input {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    padding: 9px 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    transition: border-color 0.15s;
+    width: 100%;
+  }
+
+  .field-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(79,142,247,0.1);
+  }
+
+  /* ── Type legend ── */
+  .type-legend {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+
+  .type-badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    padding: 4px 10px;
+    border-radius: 4px;
+    border: 1px solid;
+  }
+
+  .type-badge.TEXT    { background: rgba(79,142,247,.12);  border-color: #4f8ef7; color: #8ab4fb; }
+  .type-badge.BOOLEAN { background: rgba(62,207,142,.12);  border-color: #3ecf8e; color: #5dd9a6; }
+  .type-badge.NUMBER  { background: rgba(245,166,35,.12);  border-color: #f5a623; color: #f5c060; }
+  .type-badge.DATE    { background: rgba(167,139,250,.12); border-color: #a78bfa; color: #c4aeff; }
+
+  /* ── Attribute table ── */
+  .attr-toolbar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 12px;
+    align-items: center;
+  }
+
+  .search-input {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    padding: 7px 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    flex: 1;
+    max-width: 280px;
+  }
+
+  .search-input:focus { outline: none; border-color: var(--accent); }
+  .search-input::placeholder { color: var(--muted); }
+
+  .filter-btn {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    padding: 5px 12px;
+    border-radius: 4px;
+    border: 1px solid var(--border2);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .filter-btn:hover { border-color: var(--border2); color: var(--text); }
+  .filter-btn.active-TEXT    { background: rgba(79,142,247,.12);  border-color: #4f8ef7; color: #8ab4fb; }
+  .filter-btn.active-BOOLEAN { background: rgba(62,207,142,.12);  border-color: #3ecf8e; color: #5dd9a6; }
+  .filter-btn.active-NUMBER  { background: rgba(245,166,35,.12);  border-color: #f5a623; color: #f5c060; }
+  .filter-btn.active-DATE    { background: rgba(167,139,250,.12); border-color: #a78bfa; color: #c4aeff; }
+  .filter-btn.active-ALL     { background: var(--surface2); border-color: var(--accent); color: var(--accent); }
+
+  .attr-table-wrap {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+
+  .attr-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  .attr-table thead tr {
+    background: var(--surface2);
+  }
+
+  .attr-table th {
+    padding: 9px 14px;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .attr-table td {
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+  }
+
+  .attr-table tbody tr:last-child td { border-bottom: none; }
+  .attr-table tbody tr:hover { background: var(--surface2); }
+
+  .attr-table .col-num { color: var(--muted); font-family: var(--mono); font-size: 10px; width: 36px; }
+  .attr-table .col-name { font-family: var(--mono); font-size: 11px; }
+
+  .attr-scroll { max-height: 380px; overflow-y: auto; }
+  .attr-scroll::-webkit-scrollbar { width: 4px; }
+  .attr-scroll::-webkit-scrollbar-track { background: var(--surface); }
+  .attr-scroll::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+
+  .attr-table-footer {
+    padding: 8px 14px;
+    background: var(--surface2);
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--muted);
+    font-family: var(--mono);
+  }
+
+  /* ── Buttons ── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 10px 18px;
+    border-radius: var(--radius);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: all 0.15s;
+    border: 1px solid;
+    text-decoration: none;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  .btn-primary:hover { background: #6ba0f9; border-color: #6ba0f9; }
+  .btn-primary:active { transform: scale(0.98); }
+
+  .btn-secondary {
+    background: var(--surface2);
+    border-color: var(--border2);
+    color: var(--text);
+  }
+
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+  .btn-success {
+    background: var(--green-dim);
+    border-color: var(--green);
+    color: var(--green);
+  }
+
+  .btn-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 24px;
+    align-items: center;
+  }
+
+  .btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; flex-shrink: 0; }
+
+  /* ── Output panel ── */
+  .output-meta {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+
+  .meta-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+  }
+
+  .meta-card .meta-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+
+  .meta-card .meta-value {
+    font-family: var(--mono);
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--text);
+  }
+
+  .meta-card.blue .meta-value { color: var(--accent); }
+  .meta-card.green .meta-value { color: var(--green); }
+  .meta-card.amber .meta-value { color: var(--amber); }
+  .meta-card.purple .meta-value { color: var(--purple); }
+
+  .output-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .output-label .copy-status {
+    font-size: 11px;
+    color: var(--green);
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+
+  .output-label .copy-status.visible { opacity: 1; }
+
+  .code-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+
+  .code-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .code-lang {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .code-actions { display: flex; gap: 8px; }
+
+  .code-pre {
+    margin: 0;
+    padding: 16px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    line-height: 1.7;
+    color: var(--text);
+    overflow: auto;
+    max-height: 400px;
+    white-space: pre;
+  }
+
+  .code-pre::-webkit-scrollbar { width: 4px; height: 4px; }
+  .code-pre::-webkit-scrollbar-track { background: transparent; }
+  .code-pre::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+
+  /* Syntax highlights */
+  .kw { color: #f5a623; }
+  .fn { color: #4f8ef7; }
+  .str { color: #3ecf8e; }
+  .key { color: #a78bfa; }
+  .val { color: #f5a623; }
+  .cm { color: var(--muted); }
+
+  /* ── Empty state ── */
+  .empty-state {
+    text-align: center;
+    padding: 60px 32px;
+  }
+
+  .empty-icon {
+    width: 48px;
+    height: 48px;
+    margin: 0 auto 16px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .empty-icon svg { width: 22px; height: 22px; stroke: var(--muted); fill: none; }
+  .empty-state h3 { font-size: 14px; font-weight: 500; color: var(--muted); margin-bottom: 4px; }
+  .empty-state p { font-size: 12px; color: var(--muted); }
+
+  /* ── Section separator ── */
+  .section-sep {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 28px 0;
+  }
+
+  .section-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .section-title::after {
+    content: '';
+    flex: 1;
+    border-top: 1px solid var(--border);
+  }
+
+  /* ── Toast ── */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--surface2);
+    border: 1px solid var(--green);
+    color: var(--green);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 10px 18px;
+    border-radius: var(--radius);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transform: translateY(80px);
+    opacity: 0;
+    transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    z-index: 100;
+  }
+
+  .toast.show { transform: translateY(0); opacity: 1; }
+  .toast svg { width: 14px; height: 14px; stroke: var(--green); fill: none; }
+</style>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <!-- ── Sidebar ── -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="wordmark">Acoustic</div>
+      <div class="tagline">Mutation Builder</div>
+    </div>
+
+    <nav class="step-nav">
+      <div class="step-item active" data-panel="upload" onclick="goTo('upload')">
+        <div class="step-num" id="num-upload">1</div>
+        <div class="step-label">
+          <strong>Upload Schema</strong>
+          <span>Import .xlsx mapping file</span>
+        </div>
+      </div>
+      <div class="step-item" data-panel="configure" onclick="goTo('configure')">
+        <div class="step-num" id="num-configure">2</div>
+        <div class="step-label">
+          <strong>Configure</strong>
+          <span>Set dataset ID &amp; options</span>
+        </div>
+      </div>
+      <div class="step-item" data-panel="preview" onclick="goTo('preview')">
+        <div class="step-num" id="num-preview">3</div>
+        <div class="step-label">
+          <strong>Preview Attributes</strong>
+          <span>Review mapped fields</span>
+        </div>
+      </div>
+      <div class="step-item" data-panel="output" onclick="goTo('output')">
+        <div class="step-num" id="num-output">4</div>
+        <div class="step-label">
+          <strong>Generate &amp; Export</strong>
+          <span>Copy or download mutation</span>
+        </div>
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      Acoustic Connect API<br>
+      <span>updateDataSet mutation</span>
+    </div>
+  </aside>
+
+  <!-- ── Main ── -->
+  <div class="main">
+
+    <!-- Topbar -->
+    <div class="topbar">
+      <div class="topbar-title" id="topbar-title">Step 1 — Upload Schema</div>
+      <div class="stat-pills">
+        <div class="stat-pill" id="pill-total">0 attributes</div>
+        <div class="stat-pill" id="pill-file">No file loaded</div>
+      </div>
+    </div>
+
+    <!-- Content -->
+    <div class="content">
+
+      <!-- ── Panel 1: Upload ── -->
+      <div class="panel active" id="panel-upload">
+        <div class="panel-heading">
+          <h2>Upload your attribute schema</h2>
+          <p>Accepts any .xlsx file with attribute name in column A and type in column B.</p>
+        </div>
+
+        <div class="dropzone" id="dropzone"
+          ondragover="event.preventDefault(); this.classList.add('drag-over')"
+          ondragleave="this.classList.remove('drag-over')"
+          ondrop="handleDrop(event)">
+          <input type="file" accept=".xlsx,.xls" onchange="handleFile(this.files[0])" id="fileInput">
+          <div class="drop-icon">
+            <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/></svg>
+          </div>
+          <div class="drop-title">Drop your .xlsx file here</div>
+          <div class="drop-sub">or click anywhere to browse</div>
+          <span class="drop-accepted">.xlsx · .xls</span>
+        </div>
+
+        <div class="file-loaded" id="file-loaded" style="display:none">
+          <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span class="file-loaded-name" id="file-loaded-name">—</span>
+          <span class="file-loaded-count" id="file-loaded-count"></span>
+          <button class="btn-reupload" onclick="document.getElementById('fileInput').click()">Replace</button>
+        </div>
+
+        <hr class="section-sep">
+
+        <div class="section-title">Expected format</div>
+
+        <table class="attr-table" style="max-width:420px">
+          <thead>
+            <tr>
+              <th>Column A — name</th>
+              <th>Column B — type</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="col-name">FIRST_NAME</td><td><span class="type-badge TEXT">TEXT</span></td></tr>
+            <tr><td class="col-name">PLAN_ASSETS</td><td><span class="type-badge NUMBER">NUMBER</span></td></tr>
+            <tr><td class="col-name">CONVERTED_DATE</td><td><span class="type-badge DATE">DATE</span></td></tr>
+            <tr><td class="col-name">isPersonAccount</td><td><span class="type-badge BOOLEAN">BOOLEAN</span></td></tr>
+          </tbody>
+        </table>
+
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="goTo('configure')" id="btn-next-1" style="opacity:.4;pointer-events:none">
+            <svg viewBox="0 0 24 24" stroke-width="2"><path d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/></svg>
+            Continue to Configure
+          </button>
+        </div>
+      </div>
+
+      <!-- ── Panel 2: Configure ── -->
+      <div class="panel" id="panel-configure">
+        <div class="panel-heading">
+          <h2>Configure mutation settings</h2>
+          <p>Set the target dataset and adjust type formatting options.</p>
+        </div>
+
+        <div class="section-title">Dataset</div>
+        <div class="config-grid">
+          <div class="field-group">
+            <label class="field-label">Dataset ID <span style="color:var(--red)">*</span></label>
+            <input class="field-input" id="input-dsid" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+              value="32348c2f-d27c-47f2-8e03-610c01b6cf94">
+            <span style="font-size:11px;color:var(--muted)">The unique identifier for your Acoustic Connect dataset.</span>
+          </div>
+        </div>
+
+        <hr class="section-sep">
+        <div class="section-title">Type options</div>
+
+        <div class="config-grid">
+          <div class="field-group">
+            <label class="field-label">NUMBER decimal precision</label>
+            <input class="field-input" id="input-precision" type="number" min="0" max="10" value="2" style="max-width:100px">
+            <span style="font-size:11px;color:var(--muted)">Applied to all NUMBER fields as <code style="font-family:var(--mono);color:var(--purple)">decimalPrecision</code>.</span>
+          </div>
+        </div>
+
+        <hr class="section-sep">
+        <div class="section-title">Type mapping reference</div>
+
+        <table class="attr-table" style="max-width:520px">
+          <thead>
+            <tr>
+              <th>Spreadsheet value</th>
+              <th>GraphQL type</th>
+              <th>Format in mutation</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="col-name">Text, TEXT, String</td>
+              <td><span class="type-badge TEXT">TEXT</span></td>
+              <td style="font-family:var(--mono);font-size:11px;color:var(--green)">type: "TEXT"</td>
+            </tr>
+            <tr>
+              <td class="col-name">True/False, Boolean</td>
+              <td><span class="type-badge BOOLEAN">BOOLEAN</span></td>
+              <td style="font-family:var(--mono);font-size:11px;color:var(--green)">type: BOOLEAN</td>
+            </tr>
+            <tr>
+              <td class="col-name">Number, NUMBER</td>
+              <td><span class="type-badge NUMBER">NUMBER</span></td>
+              <td style="font-family:var(--mono);font-size:11px;color:var(--green)">type: NUMBER, decimalPrecision: 2</td>
+            </tr>
+            <tr>
+              <td class="col-name">Date, DATE</td>
+              <td><span class="type-badge DATE">DATE</span></td>
+              <td style="font-family:var(--mono);font-size:11px;color:var(--green)">type: DATE</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="btn-row">
+          <button class="btn btn-secondary" onclick="goTo('upload')">
+            <svg viewBox="0 0 24 24" stroke-width="2"><path d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/></svg>
+            Back
+          </button>
+          <button class="btn btn-primary" onclick="goTo('preview')">
+            <svg viewBox="0 0 24 24" stroke-width="2"><path d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/></svg>
+            Preview Attributes
+          </button>
+        </div>
+      </div>
+
+      <!-- ── Panel 3: Preview ── -->
+      <div class="panel" id="panel-preview">
+        <div class="panel-heading">
+          <h2>Preview attribute mapping</h2>
+          <p>Review all attributes and their resolved types before generating the mutation.</p>
+        </div>
+
+        <div class="type-legend" id="type-legend"></div>
+
+        <div class="attr-toolbar">
+          <input class="search-input" id="search-input" type="text" placeholder="Search by name…" oninput="renderTable()">
+          <button class="filter-btn active-ALL" id="filter-ALL" onclick="setFilter('ALL')">All</button>
+          <button class="filter-btn" id="filter-TEXT" onclick="setFilter('TEXT')">TEXT</button>
+          <button class="filter-btn" id="filter-BOOLEAN" onclick="setFilter('BOOLEAN')">BOOLEAN</button>
+          <button class="filter-btn" id="filter-NUMBER" onclick="setFilter('NUMBER')">NUMBER</button>
+          <button class="filter-btn" id="filter-DATE" onclick="setFilter('DATE')">DATE</button>
+        </div>
+
+        <div class="attr-table-wrap">
+          <div class="attr-scroll">
+            <table class="attr-table" id="attr-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Attribute name</th>
+                  <th>Raw value</th>
+                  <th>Mapped type</th>
+                </tr>
+              </thead>
+              <tbody id="attr-tbody"></tbody>
+            </table>
+          </div>
+          <div class="attr-table-footer" id="attr-footer">—</div>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-secondary" onclick="goTo('configure')">
+            <svg viewBox="0 0 24 24" stroke-width="2"><path d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/></svg>
+            Back
+          </button>
+          <button class="btn btn-primary" onclick="buildAndGoOutput()">
+            <svg viewBox="0 0 24 24" stroke-width="2"><path d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5"/></svg>
+            Generate Mutation
+          </button>
+        </div>
+      </div>
+
+      <!-- ── Panel 4: Output ── -->
+      <div class="panel" id="panel-output">
+        <div class="panel-heading">
+          <h2>Generated GraphQL mutation</h2>
+          <p>Copy to clipboard or download as a <code style="font-family:var(--mono);color:var(--purple)">.graphql</code> file.</p>
+        </div>
+
+        <div class="output-meta" id="output-meta">
+          <div class="meta-card"><div class="meta-label">Total</div><div class="meta-value" id="meta-total">—</div></div>
+          <div class="meta-card blue"><div class="meta-label">TEXT</div><div class="meta-value" id="meta-text">—</div></div>
+          <div class="meta-card green"><div class="meta-label">BOOLEAN</div><div class="meta-value" id="meta-bool">—</div></div>
+          <div class="meta-card amber"><div class="meta-label">NUMBER</div><div class="meta-value" id="meta-num">—</div></div>
+        </div>
+
+        <div class="output-label">
+          <span>mutation output</span>
+          <span class="copy-status" id="copy-status">✓ Copied to clipboard</span>
+        </div>
+
+        <div class="code-block">
+          <div class="code-header">
+            <span class="code-lang">graphql</span>
+            <div class="code-actions">
+              <button class="btn btn-secondary" style="padding:5px 12px;font-size:11px" onclick="copyMutation()">
+                <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184"/></svg>
+                Copy
+              </button>
+              <button class="btn btn-success" style="padding:5px 12px;font-size:11px" onclick="downloadMutation()">
+                <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+                Download .graphql
+              </button>
+            </div>
+          </div>
+          <pre class="code-pre" id="code-output"></pre>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-secondary" onclick="goTo('preview')">
+            <svg viewBox="0 0 24 24" stroke-width="2"><path d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/></svg>
+            Back to Preview
+          </button>
+          <button class="btn btn-secondary" onclick="reset()">
+            <svg viewBox="0 0 24 24" stroke-width="2"><path d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+            Start over
+          </button>
+        </div>
+      </div>
+
+    </div><!-- /content -->
+  </div><!-- /main -->
+</div><!-- /app-shell -->
+
+<!-- Toast -->
+<div class="toast" id="toast">
+  <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+  <span id="toast-msg">Done</span>
+</div>
+
+<script>
+const TYPE_MAP = {
+  'TEXT':true,'STRING':true,'text':true,'string':true,
+  'TRUE/FALSE':true,'BOOLEAN':true,'boolean':true,
+  'NUMBER':true,'number':true,
+  'DATE':true,'date':true,
+};
+
+function resolveType(raw) {
+  const u = (raw||'').trim().toUpperCase();
+  if (u==='TEXT'||u==='STRING') return 'TEXT';
+  if (u==='TRUE/FALSE'||u==='BOOLEAN') return 'BOOLEAN';
+  if (u==='NUMBER') return 'NUMBER';
+  if (u==='DATE') return 'DATE';
+  return 'TEXT';
+}
+
+let attrs = [];
+let filterType = 'ALL';
+let mutation = '';
+
+const panels = ['upload','configure','preview','output'];
+const panelTitles = {
+  upload: 'Step 1 — Upload Schema',
+  configure: 'Step 2 — Configure',
+  preview: 'Step 3 — Preview Attributes',
+  output: 'Step 4 — Generate & Export',
+};
+
+function goTo(name) {
+  panels.forEach(p => {
+    document.getElementById('panel-'+p).classList.toggle('active', p===name);
+    document.querySelector(`[data-panel="${p}"]`).classList.toggle('active', p===name);
+  });
+  document.getElementById('topbar-title').textContent = panelTitles[name];
+}
+
+function markDone(name) {
+  const el = document.querySelector(`[data-panel="${name}"]`);
+  el.classList.add('done');
+  el.classList.remove('active');
+  document.getElementById('num-'+name).textContent = '✓';
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('dropzone').classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) handleFile(file);
+}
+
+function handleFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const wb = XLSX.read(e.target.result, { type: 'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+    attrs = rows.slice(1)
+      .filter(r => r[0])
+      .map(r => ({
+        name: String(r[0]).trim(),
+        raw:  String(r[1]||'').trim(),
+        type: resolveType(String(r[1]||'')),
+      }));
+
+    document.getElementById('file-loaded').style.display = 'flex';
+    document.getElementById('file-loaded-name').textContent = file.name;
+    document.getElementById('file-loaded-count').textContent = attrs.length + ' attributes found';
+    document.getElementById('pill-file').textContent = file.name;
+    document.getElementById('pill-file').classList.add('has-data');
+    document.getElementById('pill-total').textContent = attrs.length + ' attributes';
+    document.getElementById('pill-total').classList.add('has-data');
+
+    const btn = document.getElementById('btn-next-1');
+    btn.style.opacity = '1';
+    btn.style.pointerEvents = 'auto';
+
+    markDone('upload');
+    renderLegend();
+    renderTable();
+    showToast('File loaded — ' + attrs.length + ' attributes');
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function renderLegend() {
+  const counts = {};
+  attrs.forEach(a => counts[a.type] = (counts[a.type]||0)+1);
+  const el = document.getElementById('type-legend');
+  el.innerHTML = ['TEXT','BOOLEAN','NUMBER','DATE'].map(t =>
+    `<span class="type-badge ${t}">${t} <strong style="opacity:.7">${counts[t]||0}</strong></span>`
+  ).join('');
+}
+
+function setFilter(f) {
+  filterType = f;
+  ['ALL','TEXT','BOOLEAN','NUMBER','DATE'].forEach(t => {
+    const btn = document.getElementById('filter-'+t);
+    btn.className = 'filter-btn' + (t===f ? ' active-'+f : '');
+  });
+  renderTable();
+}
+
+function renderTable() {
+  const q = (document.getElementById('search-input').value||'').toLowerCase();
+  const filtered = attrs.filter(a =>
+    (filterType==='ALL' || a.type===filterType) &&
+    a.name.toLowerCase().includes(q)
+  );
+
+  const TYPE_BADGE = { TEXT:'TEXT', BOOLEAN:'BOOLEAN', NUMBER:'NUMBER', DATE:'DATE' };
+
+  const tbody = document.getElementById('attr-tbody');
+  tbody.innerHTML = filtered.map((a,i) => `
+    <tr>
+      <td class="col-num">${i+1}</td>
+      <td class="col-name">${escHtml(a.name)}</td>
+      <td style="font-family:var(--mono);font-size:11px;color:var(--muted)">${escHtml(a.raw)}</td>
+      <td><span class="type-badge ${a.type}">${TYPE_BADGE[a.type]}</span></td>
+    </tr>
+  `).join('');
+
+  document.getElementById('attr-footer').textContent =
+    `Showing ${filtered.length} of ${attrs.length} attributes`;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function buildMutation() {
+  const dsid = document.getElementById('input-dsid').value.trim();
+  const prec = parseInt(document.getElementById('input-precision').value, 10);
+
+  const lines = attrs.map(a => {
+    const n = a.name.replace(/\\/g,'\\\\').replace(/"/g,'\\"');
+    if (a.type==='TEXT')    return `          { name: "${n}", type: "TEXT" }`;
+    if (a.type==='BOOLEAN') return `          { name: "${n}", type: BOOLEAN }`;
+    if (a.type==='DATE')    return `          { name: "${n}", type: DATE }`;
+    if (a.type==='NUMBER')  return `          { name: "${n}", type: NUMBER, decimalPrecision: ${prec} }`;
+    return `          { name: "${n}", type: "TEXT" }`;
+  });
+
+  mutation = `mutation {\n  updateDataSet(\n    where: { dataSetId: "${dsid}" }\n    to: {\n      attributes: {\n        create: [\n${lines.join('\n')}\n        ]\n      }\n    }\n  ) {\n    dataSetId\n  }\n}`;
+  return mutation;
+}
+
+function buildAndGoOutput() {
+  buildMutation();
+
+  const counts = {};
+  attrs.forEach(a => counts[a.type] = (counts[a.type]||0)+1);
+  document.getElementById('meta-total').textContent = attrs.length;
+  document.getElementById('meta-text').textContent  = counts['TEXT']||0;
+  document.getElementById('meta-bool').textContent  = counts['BOOLEAN']||0;
+  document.getElementById('meta-num').textContent   = counts['NUMBER']||0;
+
+  document.getElementById('code-output').textContent = mutation;
+
+  markDone('configure');
+  markDone('preview');
+  goTo('output');
+  showToast('Mutation generated — ' + attrs.length + ' attributes');
+}
+
+function copyMutation() {
+  if (!mutation) return;
+  navigator.clipboard.writeText(mutation).then(() => {
+    const s = document.getElementById('copy-status');
+    s.classList.add('visible');
+    setTimeout(() => s.classList.remove('visible'), 2500);
+    showToast('Copied to clipboard');
+  });
+}
+
+function downloadMutation() {
+  if (!mutation) return;
+  const blob = new Blob([mutation], { type: 'text/plain' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'acoustic_create_contact_attributes.graphql';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Downloaded .graphql file');
+}
+
+function reset() {
+  attrs = [];
+  mutation = '';
+  filterType = 'ALL';
+  document.getElementById('fileInput').value = '';
+  document.getElementById('file-loaded').style.display = 'none';
+  document.getElementById('pill-file').textContent = 'No file loaded';
+  document.getElementById('pill-file').classList.remove('has-data');
+  document.getElementById('pill-total').textContent = '0 attributes';
+  document.getElementById('pill-total').classList.remove('has-data');
+  document.getElementById('btn-next-1').style.opacity = '.4';
+  document.getElementById('btn-next-1').style.pointerEvents = 'none';
+  panels.forEach(p => {
+    const el = document.querySelector(`[data-panel="${p}"]`);
+    el.classList.remove('done','active');
+    document.getElementById('num-'+p).textContent = panels.indexOf(p)+1;
+  });
+  goTo('upload');
+  document.querySelector('[data-panel="upload"]').classList.add('active');
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  document.getElementById('toast-msg').textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2800);
+}
+</script>
+</body>
+</html>
