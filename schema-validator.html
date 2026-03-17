@@ -60,6 +60,38 @@ function sendToTool(toolFile) {
   document.getElementById('send-caret').classList.remove('open');
 }
 
+
+function showHeaderPreview(rows) {
+  const el = document.getElementById('header-row-preview');
+  if (!rows || rows.length === 0) { el.classList.remove('visible'); return; }
+  const hasHeader = document.getElementById('has-header').checked;
+  const r0 = rows[0] || []; const r1 = rows[1] || [];
+  const n0 = String(r0[0]||'').trim()||'(empty)', t0 = String(r0[1]||'').trim()||'(empty)';
+  const n1 = String(r1[0]||'').trim()||'(empty)', t1 = String(r1[1]||'').trim()||'(empty)';
+  el.innerHTML = hasHeader
+    ? '<span class="skip-row">Row 1 skipped (header): ' + escHtml(n0) + ' | ' + escHtml(t0) + '</span><br><span class="data-row">Row 2 first data row: ' + escHtml(n1) + ' | ' + escHtml(t1) + '</span>'
+    : '<span class="data-row">Row 1 first data row: ' + escHtml(n0) + ' | ' + escHtml(t0) + '</span><br><span class="data-row">Row 2: ' + escHtml(n1) + ' | ' + escHtml(t1) + '</span>';
+  el.classList.add('visible');
+}
+
+document.getElementById('has-header').addEventListener('change', function() {
+  if (!window._lastRawRows) return;
+  showHeaderPreview(window._lastRawRows);
+  const hasHeader = this.checked;
+  const startRow  = hasHeader ? 2 : 1;
+  rawAttrs = (hasHeader ? window._lastRawRows.slice(1) : window._lastRawRows).map((r, i) => ({
+    row: i + startRow,
+    name: r[0] !== undefined ? String(r[0]) : '',
+    rawType: r[1] !== undefined ? String(r[1]).trim() : '',
+  })).filter(r => r.name.trim() !== '' || r.rawType !== '');
+  // Reset validation state if results were already shown
+  document.getElementById('score-banner').classList.remove('visible');
+  document.getElementById('results-section').classList.remove('visible');
+  document.getElementById('status-badge').textContent = 'Ready';
+  document.getElementById('status-badge').className   = 'status-badge';
+  showToast('Header setting changed — re-validate to update results');
+});
+
 </script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -538,6 +570,40 @@ function sendToTool(toolFile) {
   .send-menu-badge.live { background: var(--green-dim); border: 1px solid var(--green); color: var(--green); }
   .send-menu-badge.soon { background: var(--surface); border: 1px solid var(--border2); color: var(--muted); }
 
+
+  /* ── Header row toggle ── */
+  .header-toggle {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 16px; margin-top: 10px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .header-toggle-label { font-size: 12px; color: var(--text); flex: 1; }
+  .header-toggle-label span { font-size: 11px; color: var(--muted); display: block; margin-top: 1px; }
+  .toggle-switch { position: relative; width: 36px; height: 20px; flex-shrink: 0; }
+  .toggle-switch input { opacity: 0; width: 0; height: 0; }
+  .toggle-track {
+    position: absolute; inset: 0; border-radius: 20px;
+    background: var(--border2); cursor: pointer; transition: background 0.2s;
+  }
+  .toggle-track::after {
+    content: ''; position: absolute; left: 3px; top: 3px;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--muted); transition: all 0.2s;
+  }
+  .toggle-switch input:checked + .toggle-track { background: var(--accent); }
+  .toggle-switch input:checked + .toggle-track::after { transform: translateX(16px); background: #fff; }
+  .header-row-preview {
+    font-family: var(--mono); font-size: 10px; color: var(--muted);
+    margin-top: 6px; padding: 6px 10px;
+    background: var(--surface2); border-radius: 5px;
+    border: 1px solid var(--border);
+    display: none;
+  }
+  .header-row-preview.visible { display: block; }
+  .header-row-preview .skip-row { color: var(--amber); text-decoration: line-through; }
+  .header-row-preview .data-row { color: var(--green); }
+
 </style>
 </head>
 <body>
@@ -630,6 +696,19 @@ function sendToTool(toolFile) {
           Validate Schema
         </button>
       </div>
+
+      <!-- Header row toggle -->
+      <div class="header-toggle" id="header-toggle" style="margin-bottom:16px">
+        <div class="header-toggle-label">
+          File has a header row
+          <span>Toggle off if row 1 is already attribute data, not column labels</span>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="has-header" checked>
+          <div class="toggle-track"></div>
+        </label>
+      </div>
+      <div class="header-row-preview" id="header-row-preview"></div>
 
       <!-- Score banner -->
       <div class="score-banner" id="score-banner">
@@ -780,11 +859,17 @@ function handleFile(file) {
   fileName = file.name;
   const reader = new FileReader();
   reader.onload = e => {
+    window._lastRawRows = null;
     const wb = XLSX.read(e.target.result, { type: 'array' });
     const ws = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
-    rawAttrs = rows.slice(1).map((r, i) => ({
-      row: i + 2,
+    window._lastRawRows = rows;
+    showHeaderPreview(rows);
+    const hasHeader = document.getElementById('has-header').checked;
+    const dataRows  = hasHeader ? rows.slice(1) : rows;
+    const startRow  = hasHeader ? 2 : 1;
+    rawAttrs = dataRows.map((r, i) => ({
+      row: i + startRow,
       name: r[0] !== undefined ? String(r[0]) : '',
       rawType: r[1] !== undefined ? String(r[1]).trim() : '',
     })).filter(r => r.name.trim() !== '' || r.rawType !== '');

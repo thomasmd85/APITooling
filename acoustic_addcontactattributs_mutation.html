@@ -51,7 +51,8 @@
       const wb = XLSX.read(bytes.buffer, { type: 'array' });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
-      const parsed = rows.slice(1).filter(r => r[0]).map(r => ({
+      const hasHeader = document.getElementById('has-header').checked;
+      const parsed = (hasHeader ? rows.slice(1) : rows).filter(r => r[0]).map(r => ({
         name: String(r[0]).trim(),
         raw:  String(r[1] || '').trim(),
         type: (function(v) {
@@ -70,6 +71,366 @@
     }
   } catch(e) { console.warn('Transfer parse error', e); }
 })();
+
+
+// ── API Execution ──
+function toggleApiConfig() {
+  const body   = document.getElementById('api-config-body');
+  const icon   = document.getElementById('api-toggle-icon');
+  const isOpen = body.classList.toggle('open');
+  icon.classList.toggle('open', isOpen);
+  checkExecuteReady();
+}
+
+function prefillEndpoint() {
+  const sel = document.getElementById('api-env');
+  if (sel.value) document.getElementById('api-endpoint').value = sel.value;
+  checkExecuteReady();
+}
+
+function toggleKeyVisibility() {
+  const input = document.getElementById('api-key');
+  const icon  = document.getElementById('eye-icon');
+  if (input.type === 'password') {
+    input.type = 'text';
+    icon.innerHTML = '<path d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88"/>';
+  } else {
+    input.type = 'password';
+    icon.innerHTML = '<path d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"/><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>';
+  }
+}
+
+document.getElementById('api-endpoint').addEventListener('input', checkExecuteReady);
+document.getElementById('api-key').addEventListener('input', checkExecuteReady);
+
+function checkExecuteReady() {
+  const endpoint = document.getElementById('api-endpoint').value.trim();
+  const key      = document.getElementById('api-key').value.trim();
+  const btn      = document.getElementById('execute-btn');
+  const hint     = document.getElementById('execute-hint');
+  const ready    = endpoint && key && mutation;
+  btn.disabled   = !ready;
+  if (!mutation) {
+    hint.textContent = 'Generate mutation first';
+  } else if (!endpoint) {
+    hint.textContent = 'Enter endpoint URL to enable';
+  } else if (!key) {
+    hint.textContent = 'Enter API key to enable';
+  } else {
+    hint.textContent = 'Ready to execute';
+    hint.style.color = 'var(--green)';
+    return;
+  }
+  hint.style.color = 'var(--muted)';
+}
+
+async function executeApi() {
+  const endpoint = document.getElementById('api-endpoint').value.trim();
+  const key      = document.getElementById('api-key').value.trim();
+  const authType = document.getElementById('api-auth-type').value;
+  if (!endpoint || !key || !mutation) return;
+
+  const btn = document.getElementById('execute-btn');
+  btn.classList.add('loading');
+  btn.innerHTML = '<span class="spinner">↻</span> Executing…';
+  document.getElementById('cors-notice').classList.remove('visible');
+  document.getElementById('response-panel').classList.remove('visible');
+
+  const headers = { 'Content-Type': 'application/json' };
+  if (authType === 'Bearer')  headers['Authorization'] = 'Bearer ' + key;
+  if (authType === 'x-api-key') headers['x-api-key']  = key;
+  if (authType === 'Basic')   headers['Authorization'] = 'Basic ' + key;
+
+  const t0 = Date.now();
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ query: mutation }),
+    });
+
+    const elapsed = Date.now() - t0;
+    const text    = await res.text();
+    let parsed;
+    try { parsed = JSON.parse(text); } catch { parsed = null; }
+
+    const statusEl  = document.getElementById('response-status');
+    const statusTxt = document.getElementById('response-status-text');
+    const timeEl    = document.getElementById('response-time');
+    const bodyEl    = document.getElementById('response-body');
+
+    const isSuccess = res.ok && parsed && !parsed.errors;
+    statusEl.className  = 'response-status ' + (isSuccess ? 'success' : 'error');
+    statusTxt.textContent = res.status + ' ' + res.statusText + (parsed?.errors ? ' · GraphQL errors' : '');
+    timeEl.textContent  = elapsed + 'ms';
+    bodyEl.innerHTML    = syntaxHighlight(parsed ? JSON.stringify(parsed, null, 2) : text);
+
+    document.getElementById('response-panel').classList.add('visible');
+    showToast(isSuccess ? 'Mutation executed successfully' : 'API returned errors', isSuccess ? '' : 'red');
+
+  } catch (err) {
+    const elapsed = Date.now() - t0;
+    if (err.message && (err.message.includes('CORS') || err.message.includes('fetch') || err.message.includes('Failed to fetch') || err.message.includes('NetworkError'))) {
+      document.getElementById('cors-notice').classList.add('visible');
+      showToast('CORS error — see notice below', 'red');
+    } else {
+      const statusEl  = document.getElementById('response-status');
+      const statusTxt = document.getElementById('response-status-text');
+      statusEl.className    = 'response-status error';
+      statusTxt.textContent = 'Network error: ' + err.message;
+      document.getElementById('response-time').textContent = elapsed + 'ms';
+      document.getElementById('response-body').textContent = err.toString();
+      document.getElementById('response-panel').classList.add('visible');
+      showToast('Request failed', 'red');
+    }
+  } finally {
+    btn.classList.remove('loading');
+    btn.innerHTML = '<svg viewBox="0 0 24 24" stroke-width="2"><path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg> Execute Mutation';
+  }
+}
+
+function clearResponse() {
+  document.getElementById('response-panel').classList.remove('visible');
+  document.getElementById('cors-notice').classList.remove('visible');
+}
+
+function syntaxHighlight(json) {
+  return json
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/("(\u[a-zA-Z0-9]{4}|\[^u]|[^\"])*"(\s*:)?|(true|false|null)|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, match => {
+      if (/^"/.test(match)) {
+        if (/:$/.test(match)) return '<span class="json-key">' + match + '</span>';
+        return '<span class="json-string">' + match + '</span>';
+      }
+      if (/true|false/.test(match)) return '<span class="json-bool">' + match + '</span>';
+      if (/null/.test(match))       return '<span class="json-null">' + match + '</span>';
+      return '<span class="json-num">' + match + '</span>';
+    });
+}
+
+// Re-check execute readiness when mutation is built
+const _origBuildAndGoOutput = buildAndGoOutput;
+buildAndGoOutput = function() {
+  _origBuildAndGoOutput();
+  setTimeout(checkExecuteReady, 100);
+};
+
+
+// ── Credential Manager ──
+const CREDS_KEY = 'acoustic_api_credentials';
+
+function getCredentials() {
+  try { return JSON.parse(localStorage.getItem(CREDS_KEY) || '[]'); } catch { return []; }
+}
+
+function saveCredentials(creds) {
+  localStorage.setItem(CREDS_KEY, JSON.stringify(creds));
+}
+
+function renderCredSelect() {
+  const creds  = getCredentials();
+  const sel    = document.getElementById('cred-select');
+  const delBtn = document.getElementById('cred-delete-btn');
+  const cur    = sel.value;
+  sel.innerHTML = '<option value="">— Select saved credential —</option>';
+  creds.forEach((c, i) => {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = c.name;
+    sel.appendChild(opt);
+  });
+  if (cur !== '' && creds[parseInt(cur)]) sel.value = cur;
+  delBtn.disabled = sel.value === '';
+}
+
+function loadCredential() {
+  const idx   = document.getElementById('cred-select').value;
+  const delBtn = document.getElementById('cred-delete-btn');
+  delBtn.disabled = idx === '';
+  if (idx === '') return;
+  const cred = getCredentials()[parseInt(idx)];
+  if (!cred) return;
+  document.getElementById('api-endpoint').value  = cred.endpoint;
+  document.getElementById('api-key').value        = cred.key;
+  const authSel = document.getElementById('api-auth-type');
+  for (let o of authSel.options) if (o.value === cred.authType) { o.selected = true; break; }
+  checkExecuteReady();
+  showToast('Loaded: ' + cred.name);
+}
+
+function openSaveModal() {
+  const endpoint = document.getElementById('api-endpoint').value.trim();
+  const key      = document.getElementById('api-key').value.trim();
+  const authType = document.getElementById('api-auth-type').value;
+  if (!endpoint || !key) { showToast('Enter endpoint and API key first', 'red'); return; }
+  document.getElementById('cred-preview-endpoint').value = endpoint;
+  document.getElementById('cred-preview-auth').value     = authType;
+  document.getElementById('cred-name-input').value       = '';
+  document.getElementById('save-modal').classList.add('open');
+  setTimeout(() => document.getElementById('cred-name-input').focus(), 80);
+}
+
+function closeSaveModal() {
+  document.getElementById('save-modal').classList.remove('open');
+}
+
+function saveCredential() {
+  const name     = document.getElementById('cred-name-input').value.trim();
+  if (!name) { document.getElementById('cred-name-input').focus(); return; }
+  const endpoint = document.getElementById('api-endpoint').value.trim();
+  const key      = document.getElementById('api-key').value.trim();
+  const authType = document.getElementById('api-auth-type').value;
+  const creds    = getCredentials();
+  // Update if same name exists
+  const existing = creds.findIndex(c => c.name.toLowerCase() === name.toLowerCase());
+  const entry    = { name, endpoint, key, authType, saved: new Date().toISOString() };
+  if (existing >= 0) creds[existing] = entry; else creds.push(entry);
+  saveCredentials(creds);
+  renderCredSelect();
+  // Select it
+  const idx = getCredentials().findIndex(c => c.name === name);
+  document.getElementById('cred-select').value = idx;
+  document.getElementById('cred-delete-btn').disabled = false;
+  closeSaveModal();
+  showToast('Credential saved: ' + name);
+}
+
+function deleteCredential() {
+  const idx   = document.getElementById('cred-select').value;
+  if (idx === '') return;
+  const creds = getCredentials();
+  const name  = creds[parseInt(idx)].name;
+  creds.splice(parseInt(idx), 1);
+  saveCredentials(creds);
+  renderCredSelect();
+  showToast('Deleted: ' + name);
+}
+
+// ── Postman Export ──
+function openPostmanModal() {
+  const creds = getCredentials();
+  const list  = document.getElementById('postman-list');
+  if (!creds.length) {
+    list.innerHTML = '<div class="postman-empty">No saved credentials yet. Save at least one credential first.</div>';
+  } else {
+    list.innerHTML = creds.map((c, i) => `
+      <label class="postman-item" onclick="this.classList.toggle('selected')">
+        <input type="checkbox" value="${i}" checked>
+        <span class="postman-item-name">${escHtml(c.name)}</span>
+        <span class="postman-item-meta">${c.authType}</span>
+      </label>
+    `).join('');
+  }
+  document.getElementById('postman-modal').classList.add('open');
+}
+
+function closePostmanModal() {
+  document.getElementById('postman-modal').classList.remove('open');
+}
+
+function downloadPostmanCollection() {
+  const creds      = getCredentials();
+  const colName    = document.getElementById('postman-col-name').value.trim() || 'Acoustic Connect API';
+  const checkboxes = document.querySelectorAll('#postman-list input[type=checkbox]:checked');
+  const selected   = Array.from(checkboxes).map(cb => creds[parseInt(cb.value)]).filter(Boolean);
+
+  if (!selected.length) { showToast('Select at least one credential', 'red'); return; }
+
+  const collectionId = 'acoustic-' + Date.now();
+  const items = selected.map(cred => {
+    const authHeader = cred.authType === 'x-api-key'
+      ? { key: 'x-api-key', value: cred.key, type: 'text' }
+      : { key: 'Authorization', value: (cred.authType === 'Bearer' ? 'Bearer ' : '') + cred.key, type: 'text' };
+
+    return {
+      name: cred.name,
+      request: {
+        method: 'POST',
+        header: [
+          { key: 'Content-Type', value: 'application/json', type: 'text' },
+          authHeader
+        ],
+        body: {
+          mode: 'graphql',
+          graphql: {
+            query: mutation || '# Generate a mutation first',
+            variables: ''
+          }
+        },
+        url: {
+          raw: cred.endpoint,
+          protocol: cred.endpoint.split('://')[0],
+          host: (cred.endpoint.split('://')[1] || '').split('/')[0].split('.'),
+          path: (cred.endpoint.split('://')[1] || '').split('/').slice(1),
+        }
+      },
+      response: []
+    };
+  });
+
+  const collection = {
+    info: {
+      _postman_id: collectionId,
+      name: colName,
+      description: 'Acoustic Connect GraphQL API — generated by Acoustic Mutation Builder',
+      schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json'
+    },
+    item: items,
+    variable: []
+  };
+
+  const blob = new Blob([JSON.stringify(collection, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url;
+  a.download = colName.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '_postman_collection.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  closePostmanModal();
+  showToast('Postman collection downloaded');
+}
+
+// Close modals on backdrop click
+document.getElementById('save-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeSaveModal();
+});
+document.getElementById('postman-modal').addEventListener('click', function(e) {
+  if (e.target === this) closePostmanModal();
+});
+
+// Enter key in name input
+document.getElementById('cred-name-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') saveCredential();
+});
+
+// Init on load
+renderCredSelect();
+
+
+function onHeaderToggleChange() {
+  if (window._lastFileBuffer) parseFromBuffer(window._lastFileBuffer);
+}
+
+function showHeaderPreview(rows, hasHeader) {
+  const el = document.getElementById('header-row-preview');
+  if (!rows || rows.length === 0) { el.classList.remove('visible'); return; }
+  const r0 = rows[0] || [];
+  const r1 = rows[1] || [];
+  const name0 = String(r0[0] || '').trim() || '(empty)';
+  const type0 = String(r0[1] || '').trim() || '(empty)';
+  const name1 = String(r1[0] || '').trim() || '(empty)';
+  const type1 = String(r1[1] || '').trim() || '(empty)';
+  if (hasHeader) {
+    el.innerHTML =
+      '<span class="skip-row">Row 1 skipped (header): ' + escHtml(name0) + ' | ' + escHtml(type0) + '</span><br>' +
+      '<span class="data-row">Row 2 first data row: ' + escHtml(name1) + ' | ' + escHtml(type1) + '</span>';
+  } else {
+    el.innerHTML =
+      '<span class="data-row">Row 1 first data row: ' + escHtml(name0) + ' | ' + escHtml(type0) + '</span><br>' +
+      '<span class="data-row">Row 2: ' + escHtml(name1) + ' | ' + escHtml(type1) + '</span>';
+  }
+  el.classList.add('visible');
+}
 
 </script>
 <style>
@@ -754,6 +1115,273 @@
 
   .toast.show { transform: translateY(0); opacity: 1; }
   .toast svg { width: 14px; height: 14px; stroke: var(--green); fill: none; }
+
+  /* ── API Execution ── */
+  .section-sep { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
+
+  .api-config {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 16px;
+  }
+
+  .api-config-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    cursor: pointer; user-select: none;
+  }
+
+  .api-config-header-left { display: flex; align-items: center; gap: 10px; }
+  .api-config-title { font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: 0.06em; color: var(--text); text-transform: uppercase; }
+  .api-config-sub   { font-size: 11px; color: var(--muted); }
+
+  .api-config-toggle { display: flex; align-items: center; gap: 6px; }
+  .api-config-toggle svg { width: 13px; height: 13px; stroke: var(--muted); fill: none; transition: transform 0.2s; }
+  .api-config-toggle.open svg { transform: rotate(180deg); }
+
+  .api-config-body { padding: 16px; display: none; }
+  .api-config-body.open { display: block; }
+
+  .api-fields { display: grid; grid-template-columns: 1fr 180px; gap: 12px; margin-bottom: 12px; }
+  .api-field { display: flex; flex-direction: column; gap: 5px; }
+  .api-label {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--muted);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .api-label-badge {
+    font-size: 9px; padding: 1px 6px; border-radius: 3px;
+    background: var(--red-dim); border: 1px solid var(--red); color: var(--red);
+  }
+  .api-input {
+    background: var(--surface2); border: 1px solid var(--border2);
+    border-radius: 6px; padding: 8px 12px;
+    font-family: var(--mono); font-size: 12px; color: var(--text);
+    transition: border-color 0.15s; width: 100%;
+  }
+  .api-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79,142,247,.1); }
+  .api-input::placeholder { color: var(--muted); }
+  .api-input.key-input { letter-spacing: 0.04em; }
+
+  .api-auth-row { display: grid; grid-template-columns: 160px 1fr; gap: 12px; }
+
+  .api-select {
+    background: var(--surface2); border: 1px solid var(--border2);
+    border-radius: 6px; padding: 8px 12px;
+    font-family: var(--mono); font-size: 12px; color: var(--text);
+    cursor: pointer; transition: border-color 0.15s; width: 100%;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237a8494' stroke-width='2'%3E%3Cpath d='M19.5 8.25l-7.5 7.5-7.5-7.5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 10px center; background-size: 14px;
+    padding-right: 32px;
+  }
+  .api-select:focus { outline: none; border-color: var(--accent); }
+
+  .api-hint { font-size: 11px; color: var(--muted); margin-top: 8px; }
+  .api-hint a { color: var(--accent); text-decoration: none; }
+  .api-hint a:hover { text-decoration: underline; }
+
+  .key-visibility { display: flex; gap: 0; }
+  .key-visibility .api-input { border-radius: 6px 0 0 6px; border-right: none; flex: 1; }
+  .toggle-visibility {
+    padding: 0 12px; background: var(--surface2); border: 1px solid var(--border2);
+    border-radius: 0 6px 6px 0; cursor: pointer; color: var(--muted);
+    display: flex; align-items: center; transition: all 0.15s;
+  }
+  .toggle-visibility:hover { color: var(--text); border-color: var(--accent); }
+  .toggle-visibility svg { width: 14px; height: 14px; stroke: currentColor; fill: none; }
+
+  /* Execute button */
+  .btn-execute {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 20px; border-radius: 8px;
+    font-family: var(--mono); font-size: 12px; font-weight: 500;
+    letter-spacing: 0.04em; cursor: pointer;
+    border: 1px solid var(--purple); background: var(--purple-dim);
+    color: var(--purple); transition: all 0.15s;
+  }
+  .btn-execute:hover { background: var(--purple); color: #fff; }
+  .btn-execute:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-execute svg { width: 14px; height: 14px; stroke: currentColor; fill: none; }
+  .btn-execute.loading { opacity: 0.7; pointer-events: none; }
+
+  /* Response panel */
+  .response-panel {
+    display: none; margin-top: 20px;
+    border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+    animation: fadeUp 0.2s ease;
+  }
+  .response-panel.visible { display: block; }
+
+  .response-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px; background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+  }
+  .response-header-left { display: flex; align-items: center; gap: 10px; }
+  .response-status {
+    display: flex; align-items: center; gap: 6px;
+    font-family: var(--mono); font-size: 11px; font-weight: 500;
+  }
+  .response-status .dot {
+    width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  }
+  .response-status.success .dot { background: var(--green); }
+  .response-status.error   .dot { background: var(--red); }
+  .response-status.success { color: var(--green); }
+  .response-status.error   { color: var(--red); }
+
+  .response-time { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+
+  .response-body {
+    padding: 14px 16px;
+    font-family: var(--mono); font-size: 11.5px; line-height: 1.7;
+    color: var(--text); overflow-x: auto; max-height: 300px; overflow-y: auto;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .response-body::-webkit-scrollbar { width: 4px; }
+  .response-body::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+
+  .response-body .json-key    { color: var(--accent); }
+  .response-body .json-string { color: var(--green); }
+  .response-body .json-num    { color: var(--amber); }
+  .response-body .json-bool   { color: var(--purple); }
+  .response-body .json-null   { color: var(--muted); }
+
+  .cors-notice {
+    margin-top: 12px; padding: 12px 14px;
+    background: var(--amber-dim); border: 1px solid rgba(245,166,35,.3);
+    border-radius: 8px; font-size: 12px; color: var(--amber); display: none;
+  }
+  .cors-notice.visible { display: block; }
+  .cors-notice strong { font-weight: 500; display: block; margin-bottom: 3px; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner { display: inline-block; animation: spin 0.8s linear infinite; }
+
+
+  /* ── Credential Manager ── */
+  .cred-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px;
+    background: var(--surface2); border-bottom: 1px solid var(--border);
+  }
+  .cred-bar-label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+
+  .cred-select {
+    flex: 1; background: var(--surface); border: 1px solid var(--border2);
+    border-radius: 6px; padding: 6px 10px;
+    font-family: var(--mono); font-size: 12px; color: var(--text);
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237a8494' stroke-width='2'%3E%3Cpath d='M19.5 8.25l-7.5 7.5-7.5-7.5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 8px center; background-size: 12px;
+    padding-right: 28px; cursor: pointer;
+  }
+  .cred-select:focus { outline: none; border-color: var(--accent); }
+
+  .cred-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 12px; border-radius: 6px; font-family: var(--mono);
+    font-size: 11px; font-weight: 500; letter-spacing: 0.04em;
+    cursor: pointer; border: 1px solid; transition: all 0.15s; white-space: nowrap;
+  }
+  .cred-btn svg { width: 12px; height: 12px; stroke: currentColor; fill: none; }
+  .cred-btn.save   { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  .cred-btn.save:hover { background: var(--accent); color: #fff; }
+  .cred-btn.delete { background: transparent; border-color: var(--border2); color: var(--muted); }
+  .cred-btn.delete:hover { border-color: var(--red); color: var(--red); }
+  .cred-btn.postman { background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
+  .cred-btn.postman:hover { background: var(--amber); color: #000; }
+  .cred-btn:disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
+
+  /* Save modal */
+  .modal-backdrop {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.6); z-index: 200;
+    align-items: center; justify-content: center;
+  }
+  .modal-backdrop.open { display: flex; }
+
+  .modal {
+    background: var(--surface); border: 1px solid var(--border2);
+    border-radius: 12px; padding: 24px; width: 380px; max-width: 90vw;
+  }
+  .modal h3 { font-size: 14px; font-weight: 500; margin-bottom: 4px; color: var(--text); }
+  .modal p  { font-size: 12px; color: var(--muted); margin-bottom: 18px; }
+  .modal-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .modal-label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+  .modal-input {
+    background: var(--surface2); border: 1px solid var(--border2);
+    border-radius: 6px; padding: 9px 12px; font-family: var(--mono);
+    font-size: 12px; color: var(--text); width: 100%;
+  }
+  .modal-input:focus { outline: none; border-color: var(--accent); }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
+  .modal-btn {
+    padding: 8px 18px; border-radius: 7px; font-family: var(--mono);
+    font-size: 12px; font-weight: 500; cursor: pointer; border: 1px solid; transition: all 0.15s;
+  }
+  .modal-btn.confirm { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .modal-btn.confirm:hover { background: #6ba0f9; }
+  .modal-btn.cancel  { background: transparent; border-color: var(--border2); color: var(--muted); }
+  .modal-btn.cancel:hover { border-color: var(--text); color: var(--text); }
+
+  /* Postman modal */
+  .postman-list { max-height: 200px; overflow-y: auto; margin-bottom: 14px; }
+  .postman-list::-webkit-scrollbar { width: 4px; }
+  .postman-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+  .postman-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 6px; cursor: pointer;
+    transition: background 0.12s; border: 1px solid transparent; margin-bottom: 4px;
+  }
+  .postman-item:hover { background: var(--surface2); }
+  .postman-item.selected { background: var(--accent-dim); border-color: rgba(79,142,247,.3); }
+  .postman-item input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; flex-shrink: 0; cursor: pointer; }
+  .postman-item-name { font-family: var(--mono); font-size: 12px; color: var(--text); flex: 1; }
+  .postman-item-meta { font-size: 10px; color: var(--muted); font-family: var(--mono); }
+  .postman-empty { font-size: 12px; color: var(--muted); text-align: center; padding: 20px; }
+
+  .postman-collection-name { margin-bottom: 14px; }
+
+
+  /* ── Header row toggle ── */
+  .header-toggle {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 16px; margin-top: 10px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .header-toggle-label { font-size: 12px; color: var(--text); flex: 1; }
+  .header-toggle-label span { font-size: 11px; color: var(--muted); display: block; margin-top: 1px; }
+  .toggle-switch { position: relative; width: 36px; height: 20px; flex-shrink: 0; }
+  .toggle-switch input { opacity: 0; width: 0; height: 0; }
+  .toggle-track {
+    position: absolute; inset: 0; border-radius: 20px;
+    background: var(--border2); cursor: pointer; transition: background 0.2s;
+  }
+  .toggle-track::after {
+    content: ''; position: absolute; left: 3px; top: 3px;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--muted); transition: all 0.2s;
+  }
+  .toggle-switch input:checked + .toggle-track { background: var(--accent); }
+  .toggle-switch input:checked + .toggle-track::after { transform: translateX(16px); background: #fff; }
+  .header-row-preview {
+    font-family: var(--mono); font-size: 10px; color: var(--muted);
+    margin-top: 6px; padding: 6px 10px;
+    background: var(--surface2); border-radius: 5px;
+    border: 1px solid var(--border);
+    display: none;
+  }
+  .header-row-preview.visible { display: block; }
+  .header-row-preview .skip-row { color: var(--amber); text-decoration: line-through; }
+  .header-row-preview .data-row { color: var(--green); }
+
 </style>
 </head>
 <body>
@@ -838,6 +1466,19 @@
           <div class="drop-sub">or click anywhere to browse</div>
           <span class="drop-accepted">.xlsx · .xls</span>
         </div>
+
+        <!-- Header row toggle -->
+        <div class="header-toggle" id="header-toggle">
+          <div class="header-toggle-label">
+            File has a header row
+            <span>Toggle off if row 1 is already attribute data, not column labels</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="has-header" checked onchange="onHeaderToggleChange()">
+            <div class="toggle-track"></div>
+          </label>
+        </div>
+        <div class="header-row-preview" id="header-row-preview"></div>
 
         <div class="file-loaded" id="file-loaded" style="display:none">
           <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -999,7 +1640,7 @@
       <div class="panel" id="panel-output">
         <div class="panel-heading">
           <h2>Generated GraphQL mutation</h2>
-          <p>Copy to clipboard or download as a <code style="font-family:var(--mono);color:var(--purple)">.graphql</code> file.</p>
+          <p>Copy, download, or execute directly against the Acoustic Connect API.</p>
         </div>
 
         <div class="output-meta" id="output-meta">
@@ -1030,6 +1671,126 @@
           </div>
           <pre class="code-pre" id="code-output"></pre>
         </div>
+
+        <!-- ── API Execution ── -->
+        <hr class="section-sep">
+
+        <div class="api-config" id="api-config">
+          <div class="api-config-header" onclick="toggleApiConfig()">
+            <div class="api-config-header-left">
+              <svg style="width:16px;height:16px;stroke:var(--purple);fill:none;stroke-width:1.5" viewBox="0 0 24 24"><path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg>
+              <div>
+                <div class="api-config-title">Execute against API</div>
+                <div class="api-config-sub">Configure endpoint &amp; credentials to run the mutation</div>
+              </div>
+            </div>
+            <div class="api-config-toggle" id="api-toggle-icon">
+              <svg viewBox="0 0 24 24" stroke-width="2.5"><path d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
+            </div>
+          </div>
+
+          <div class="api-config-body" id="api-config-body">
+
+            <!-- Saved credentials bar -->
+            <div class="cred-bar">
+              <span class="cred-bar-label">Saved credentials</span>
+              <select class="cred-select" id="cred-select" onchange="loadCredential()">
+                <option value="">— Select saved credential —</option>
+              </select>
+              <button class="cred-btn save" onclick="openSaveModal()" title="Save current credentials">
+                <svg viewBox="0 0 24 24" stroke-width="2"><path d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z"/></svg>
+                Save
+              </button>
+              <button class="cred-btn delete" id="cred-delete-btn" onclick="deleteCredential()" title="Delete selected" disabled>
+                <svg viewBox="0 0 24 24" stroke-width="2"><path d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>
+                Delete
+              </button>
+              <button class="cred-btn postman" onclick="openPostmanModal()" title="Export to Postman collection">
+                <svg viewBox="0 0 24 24" stroke-width="2"><path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+                Postman
+              </button>
+            </div>
+
+            <div style="padding:16px">
+              <div class="api-fields">
+                <div class="api-field">
+                  <label class="api-label">GraphQL Endpoint URL</label>
+                  <input class="api-input" id="api-endpoint" type="url"
+                    placeholder="https://your-endpoint.acoustic.com/audience/v1/graphql"
+                    value="">
+                </div>
+                <div class="api-field">
+                  <label class="api-label">Environment</label>
+                  <select class="api-select" id="api-env" onchange="prefillEndpoint()">
+                    <option value="">Custom</option>
+                    <option value="https://api-us-2.acoustic.com/audience/v1/graphql">US 2</option>
+                    <option value="https://api-us-4.acoustic.com/audience/v1/graphql">US 4</option>
+                    <option value="https://api-eu-2.acoustic.com/audience/v1/graphql">EU 2</option>
+                    <option value="https://api-ap-2.acoustic.com/audience/v1/graphql">AP 2</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="api-auth-row">
+                <div class="api-field">
+                  <label class="api-label">Auth header</label>
+                  <select class="api-select" id="api-auth-type">
+                    <option value="x-api-key" selected>x-api-key</option>
+                    <option value="Bearer">Authorization: Bearer</option>
+                    <option value="Basic">Authorization: Basic</option>
+                  </select>
+                </div>
+                <div class="api-field">
+                  <label class="api-label">
+                    API Key / Token
+                    <span class="api-label-badge">sensitive</span>
+                  </label>
+                  <div class="key-visibility">
+                    <input class="api-input key-input" id="api-key" type="password" placeholder="Paste your API key or token">
+                    <button class="toggle-visibility" onclick="toggleKeyVisibility()" title="Show/hide key">
+                      <svg id="eye-icon" viewBox="0 0 24 24" stroke-width="1.5"><path d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"/><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <p class="api-hint">
+                Credentials are saved to your browser's local storage — they stay on this device only and are never transmitted except directly to your endpoint.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
+          <button class="btn-execute" id="execute-btn" onclick="executeApi()" disabled>
+            <svg viewBox="0 0 24 24" stroke-width="2"><path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg>
+            Execute Mutation
+          </button>
+          <span style="font-size:11px;color:var(--muted);font-family:var(--mono)" id="execute-hint">Enter endpoint &amp; API key to enable</span>
+        </div>
+
+        <!-- CORS warning -->
+        <div class="cors-notice" id="cors-notice">
+          <strong>CORS error — direct browser execution blocked</strong>
+          The API endpoint rejected the request from this browser origin. This is common when running from a local file or a different domain. Options: host this tool on the same domain as your API, use a proxy, or copy the mutation and execute it via Postman or your backend.
+        </div>
+
+        <!-- Response -->
+        <div class="response-panel" id="response-panel">
+          <div class="response-header">
+            <div class="response-header-left">
+              <div class="response-status" id="response-status">
+                <div class="dot"></div>
+                <span id="response-status-text">—</span>
+              </div>
+              <span class="response-time" id="response-time"></span>
+            </div>
+            <button class="btn btn-secondary" style="padding:4px 10px;font-size:11px" onclick="clearResponse()">Clear</button>
+          </div>
+          <pre class="response-body" id="response-body"></pre>
+        </div>
+
+        <hr class="section-sep">
 
         <div class="btn-row">
           <button class="btn btn-secondary" onclick="goTo('preview')">
@@ -1121,8 +1882,10 @@ function handleFile(file) {
 
     document.getElementById('file-loaded').style.display = 'flex';
     document.getElementById('file-loaded-name').textContent = file.name;
+    document.getElementById('file-loaded').style.display = 'flex';
+    document.getElementById('file-loaded-name').textContent = fileName;
     document.getElementById('file-loaded-count').textContent = attrs.length + ' attributes found';
-    document.getElementById('pill-file').textContent = file.name;
+    document.getElementById('pill-file').textContent = fileName;
     document.getElementById('pill-file').classList.add('has-data');
     document.getElementById('pill-total').textContent = attrs.length + ' attributes';
     document.getElementById('pill-total').classList.add('has-data');
@@ -1135,8 +1898,6 @@ function handleFile(file) {
     renderLegend();
     renderTable();
     showToast('File loaded — ' + attrs.length + ' attributes');
-  };
-  reader.readAsArrayBuffer(file);
 }
 
 function renderLegend() {
@@ -1269,5 +2030,48 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 2800);
 }
 </script>
+
+<!-- Save Credential Modal -->
+<div class="modal-backdrop" id="save-modal">
+  <div class="modal">
+    <h3>Save credentials</h3>
+    <p>Give this endpoint + API key combination a name so you can reuse it.</p>
+    <div class="modal-field">
+      <label class="modal-label">Credential name</label>
+      <input class="modal-input" id="cred-name-input" type="text" placeholder="e.g. Acoustic US2 Production" maxlength="60">
+    </div>
+    <div class="modal-field">
+      <label class="modal-label">Endpoint</label>
+      <input class="modal-input" id="cred-preview-endpoint" type="text" readonly style="opacity:.6">
+    </div>
+    <div class="modal-field">
+      <label class="modal-label">Auth type</label>
+      <input class="modal-input" id="cred-preview-auth" type="text" readonly style="opacity:.6">
+    </div>
+    <div class="modal-actions">
+      <button class="modal-btn cancel" onclick="closeSaveModal()">Cancel</button>
+      <button class="modal-btn confirm" onclick="saveCredential()">Save credential</button>
+    </div>
+  </div>
+</div>
+
+<!-- Postman Export Modal -->
+<div class="modal-backdrop" id="postman-modal">
+  <div class="modal" style="width:460px">
+    <h3>Export to Postman collection</h3>
+    <p>Select the saved credentials to include, name the collection, and download a ready-to-import <code style="font-family:var(--mono);color:var(--accent);font-size:11px">.json</code> file.</p>
+    <div class="modal-field postman-collection-name">
+      <label class="modal-label">Collection name</label>
+      <input class="modal-input" id="postman-col-name" type="text" value="Acoustic Connect API" placeholder="Acoustic Connect API">
+    </div>
+    <div class="modal-label" style="margin-bottom:8px">Credentials to include</div>
+    <div class="postman-list" id="postman-list"></div>
+    <div class="modal-actions">
+      <button class="modal-btn cancel" onclick="closePostmanModal()">Cancel</button>
+      <button class="modal-btn confirm" onclick="downloadPostmanCollection()">Download collection</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
