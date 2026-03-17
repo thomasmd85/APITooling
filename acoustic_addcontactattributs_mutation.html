@@ -3,1439 +3,280 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Acoustic — Contact Attribute Mutation Builder</title>
+<title>Acoustic — Add Contact Attributes Mutation Builder</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js">
-// ── Auto-load from Schema Validator transfer ──
-(function() {
-  const raw = sessionStorage.getItem('acoustic_schema_transfer');
-  if (!raw) return;
-  try {
-    const payload = JSON.parse(raw);
-    sessionStorage.removeItem('acoustic_schema_transfer');
-    if (!payload.attrs || !payload.attrs.length) return;
-
-    const name = payload.fileName || 'Imported schema';
-
-    function applyAttrs(parsedAttrs) {
-      attrs = parsedAttrs;
-
-      document.getElementById('file-loaded').style.display = 'flex';
-      document.getElementById('file-loaded-name').textContent = name;
-      document.getElementById('file-loaded-count').textContent = attrs.length + ' attributes loaded from Schema Validator';
-      document.getElementById('pill-file').textContent = name;
-      document.getElementById('pill-file').classList.add('has-data');
-      document.getElementById('pill-total').textContent = attrs.length + ' attributes';
-      document.getElementById('pill-total').classList.add('has-data');
-
-      const btn = document.getElementById('btn-next-1');
-      btn.style.opacity = '1';
-      btn.style.pointerEvents = 'auto';
-
-      document.querySelector('.drop-title').textContent = name;
-      document.querySelector('.drop-sub').textContent = attrs.length + ' attributes loaded from Schema Validator';
-
-      markDone('upload');
-      renderLegend();
-      renderTable();
-      goTo('configure');
-      showToast(attrs.length + ' attributes loaded from Schema Validator');
-    }
-
-    if (payload.fileBase64) {
-      // Re-parse the original file through XLSX — identical to a fresh upload
-      const base64Data = payload.fileBase64.split(',')[1];
-      const binary = atob(base64Data);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      const wb = XLSX.read(bytes.buffer, { type: 'array' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
-      const hasHeader = document.getElementById('has-header').checked;
-      const parsed = (hasHeader ? rows.slice(1) : rows).filter(r => r[0]).map(r => ({
-        name: String(r[0]).trim(),
-        raw:  String(r[1] || '').trim(),
-        type: (function(v) {
-          const u = (v||'').trim().toUpperCase();
-          if (u==='TEXT'||u==='STRING') return 'TEXT';
-          if (u==='TRUE/FALSE'||u==='BOOLEAN') return 'BOOLEAN';
-          if (u==='NUMBER') return 'NUMBER';
-          if (u==='DATE') return 'DATE';
-          return 'TEXT';
-        })(String(r[1]||''))
-      }));
-      applyAttrs(parsed);
-    } else {
-      // Fallback: use pre-parsed attrs passed from validator
-      applyAttrs(payload.attrs.map(a => ({ name: a.name, raw: a.rawType || a.raw, type: a.type })));
-    }
-  } catch(e) { console.warn('Transfer parse error', e); }
-})();
-
-
-// ── API Execution ──
-function toggleApiConfig() {
-  const body   = document.getElementById('api-config-body');
-  const icon   = document.getElementById('api-toggle-icon');
-  const isOpen = body.classList.toggle('open');
-  icon.classList.toggle('open', isOpen);
-  checkExecuteReady();
-}
-
-function prefillEndpoint() {
-  const sel = document.getElementById('api-env');
-  if (sel.value) document.getElementById('api-endpoint').value = sel.value;
-  checkExecuteReady();
-}
-
-function toggleKeyVisibility() {
-  const input = document.getElementById('api-key');
-  const icon  = document.getElementById('eye-icon');
-  if (input.type === 'password') {
-    input.type = 'text';
-    icon.innerHTML = '<path d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88"/>';
-  } else {
-    input.type = 'password';
-    icon.innerHTML = '<path d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"/><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>';
-  }
-}
-
-document.getElementById('api-endpoint').addEventListener('input', checkExecuteReady);
-document.getElementById('api-key').addEventListener('input', checkExecuteReady);
-
-function checkExecuteReady() {
-  const endpoint = document.getElementById('api-endpoint').value.trim();
-  const key      = document.getElementById('api-key').value.trim();
-  const btn      = document.getElementById('execute-btn');
-  const hint     = document.getElementById('execute-hint');
-  const ready    = endpoint && key && mutation;
-  btn.disabled   = !ready;
-  if (!mutation) {
-    hint.textContent = 'Generate mutation first';
-  } else if (!endpoint) {
-    hint.textContent = 'Enter endpoint URL to enable';
-  } else if (!key) {
-    hint.textContent = 'Enter API key to enable';
-  } else {
-    hint.textContent = 'Ready to execute';
-    hint.style.color = 'var(--green)';
-    return;
-  }
-  hint.style.color = 'var(--muted)';
-}
-
-async function executeApi() {
-  const endpoint = document.getElementById('api-endpoint').value.trim();
-  const key      = document.getElementById('api-key').value.trim();
-  const authType = document.getElementById('api-auth-type').value;
-  if (!endpoint || !key || !mutation) return;
-
-  const btn = document.getElementById('execute-btn');
-  btn.classList.add('loading');
-  btn.innerHTML = '<span class="spinner">↻</span> Executing…';
-  document.getElementById('cors-notice').classList.remove('visible');
-  document.getElementById('response-panel').classList.remove('visible');
-
-  const headers = { 'Content-Type': 'application/json' };
-  if (authType === 'Bearer')  headers['Authorization'] = 'Bearer ' + key;
-  if (authType === 'x-api-key') headers['x-api-key']  = key;
-  if (authType === 'Basic')   headers['Authorization'] = 'Basic ' + key;
-
-  const t0 = Date.now();
-  try {
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ query: mutation }),
-    });
-
-    const elapsed = Date.now() - t0;
-    const text    = await res.text();
-    let parsed;
-    try { parsed = JSON.parse(text); } catch { parsed = null; }
-
-    const statusEl  = document.getElementById('response-status');
-    const statusTxt = document.getElementById('response-status-text');
-    const timeEl    = document.getElementById('response-time');
-    const bodyEl    = document.getElementById('response-body');
-
-    const isSuccess = res.ok && parsed && !parsed.errors;
-    statusEl.className  = 'response-status ' + (isSuccess ? 'success' : 'error');
-    statusTxt.textContent = res.status + ' ' + res.statusText + (parsed?.errors ? ' · GraphQL errors' : '');
-    timeEl.textContent  = elapsed + 'ms';
-    bodyEl.innerHTML    = syntaxHighlight(parsed ? JSON.stringify(parsed, null, 2) : text);
-
-    document.getElementById('response-panel').classList.add('visible');
-    showToast(isSuccess ? 'Mutation executed successfully' : 'API returned errors', isSuccess ? '' : 'red');
-
-  } catch (err) {
-    const elapsed = Date.now() - t0;
-    if (err.message && (err.message.includes('CORS') || err.message.includes('fetch') || err.message.includes('Failed to fetch') || err.message.includes('NetworkError'))) {
-      document.getElementById('cors-notice').classList.add('visible');
-      showToast('CORS error — see notice below', 'red');
-    } else {
-      const statusEl  = document.getElementById('response-status');
-      const statusTxt = document.getElementById('response-status-text');
-      statusEl.className    = 'response-status error';
-      statusTxt.textContent = 'Network error: ' + err.message;
-      document.getElementById('response-time').textContent = elapsed + 'ms';
-      document.getElementById('response-body').textContent = err.toString();
-      document.getElementById('response-panel').classList.add('visible');
-      showToast('Request failed', 'red');
-    }
-  } finally {
-    btn.classList.remove('loading');
-    btn.innerHTML = '<svg viewBox="0 0 24 24" stroke-width="2"><path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg> Execute Mutation';
-  }
-}
-
-function clearResponse() {
-  document.getElementById('response-panel').classList.remove('visible');
-  document.getElementById('cors-notice').classList.remove('visible');
-}
-
-function syntaxHighlight(json) {
-  return json
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/("(\u[a-zA-Z0-9]{4}|\[^u]|[^\"])*"(\s*:)?|(true|false|null)|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, match => {
-      if (/^"/.test(match)) {
-        if (/:$/.test(match)) return '<span class="json-key">' + match + '</span>';
-        return '<span class="json-string">' + match + '</span>';
-      }
-      if (/true|false/.test(match)) return '<span class="json-bool">' + match + '</span>';
-      if (/null/.test(match))       return '<span class="json-null">' + match + '</span>';
-      return '<span class="json-num">' + match + '</span>';
-    });
-}
-
-// Re-check execute readiness when mutation is built
-const _origBuildAndGoOutput = buildAndGoOutput;
-buildAndGoOutput = function() {
-  _origBuildAndGoOutput();
-  setTimeout(checkExecuteReady, 100);
-};
-
-
-// ── Credential Manager ──
-const CREDS_KEY = 'acoustic_api_credentials';
-
-function getCredentials() {
-  try { return JSON.parse(localStorage.getItem(CREDS_KEY) || '[]'); } catch { return []; }
-}
-
-function saveCredentials(creds) {
-  localStorage.setItem(CREDS_KEY, JSON.stringify(creds));
-}
-
-function renderCredSelect() {
-  const creds  = getCredentials();
-  const sel    = document.getElementById('cred-select');
-  const delBtn = document.getElementById('cred-delete-btn');
-  const cur    = sel.value;
-  sel.innerHTML = '<option value="">— Select saved credential —</option>';
-  creds.forEach((c, i) => {
-    const opt = document.createElement('option');
-    opt.value = i;
-    opt.textContent = c.name;
-    sel.appendChild(opt);
-  });
-  if (cur !== '' && creds[parseInt(cur)]) sel.value = cur;
-  delBtn.disabled = sel.value === '';
-}
-
-function loadCredential() {
-  const idx   = document.getElementById('cred-select').value;
-  const delBtn = document.getElementById('cred-delete-btn');
-  delBtn.disabled = idx === '';
-  if (idx === '') return;
-  const cred = getCredentials()[parseInt(idx)];
-  if (!cred) return;
-  document.getElementById('api-endpoint').value  = cred.endpoint;
-  document.getElementById('api-key').value        = cred.key;
-  const authSel = document.getElementById('api-auth-type');
-  for (let o of authSel.options) if (o.value === cred.authType) { o.selected = true; break; }
-  checkExecuteReady();
-  showToast('Loaded: ' + cred.name);
-}
-
-function openSaveModal() {
-  const endpoint = document.getElementById('api-endpoint').value.trim();
-  const key      = document.getElementById('api-key').value.trim();
-  const authType = document.getElementById('api-auth-type').value;
-  if (!endpoint || !key) { showToast('Enter endpoint and API key first', 'red'); return; }
-  document.getElementById('cred-preview-endpoint').value = endpoint;
-  document.getElementById('cred-preview-auth').value     = authType;
-  document.getElementById('cred-name-input').value       = '';
-  document.getElementById('save-modal').classList.add('open');
-  setTimeout(() => document.getElementById('cred-name-input').focus(), 80);
-}
-
-function closeSaveModal() {
-  document.getElementById('save-modal').classList.remove('open');
-}
-
-function saveCredential() {
-  const name     = document.getElementById('cred-name-input').value.trim();
-  if (!name) { document.getElementById('cred-name-input').focus(); return; }
-  const endpoint = document.getElementById('api-endpoint').value.trim();
-  const key      = document.getElementById('api-key').value.trim();
-  const authType = document.getElementById('api-auth-type').value;
-  const creds    = getCredentials();
-  // Update if same name exists
-  const existing = creds.findIndex(c => c.name.toLowerCase() === name.toLowerCase());
-  const entry    = { name, endpoint, key, authType, saved: new Date().toISOString() };
-  if (existing >= 0) creds[existing] = entry; else creds.push(entry);
-  saveCredentials(creds);
-  renderCredSelect();
-  // Select it
-  const idx = getCredentials().findIndex(c => c.name === name);
-  document.getElementById('cred-select').value = idx;
-  document.getElementById('cred-delete-btn').disabled = false;
-  closeSaveModal();
-  showToast('Credential saved: ' + name);
-}
-
-function deleteCredential() {
-  const idx   = document.getElementById('cred-select').value;
-  if (idx === '') return;
-  const creds = getCredentials();
-  const name  = creds[parseInt(idx)].name;
-  creds.splice(parseInt(idx), 1);
-  saveCredentials(creds);
-  renderCredSelect();
-  showToast('Deleted: ' + name);
-}
-
-// ── Postman Export ──
-function openPostmanModal() {
-  const creds = getCredentials();
-  const list  = document.getElementById('postman-list');
-  if (!creds.length) {
-    list.innerHTML = '<div class="postman-empty">No saved credentials yet. Save at least one credential first.</div>';
-  } else {
-    list.innerHTML = creds.map((c, i) => `
-      <label class="postman-item" onclick="this.classList.toggle('selected')">
-        <input type="checkbox" value="${i}" checked>
-        <span class="postman-item-name">${escHtml(c.name)}</span>
-        <span class="postman-item-meta">${c.authType}</span>
-      </label>
-    `).join('');
-  }
-  document.getElementById('postman-modal').classList.add('open');
-}
-
-function closePostmanModal() {
-  document.getElementById('postman-modal').classList.remove('open');
-}
-
-function downloadPostmanCollection() {
-  const creds      = getCredentials();
-  const colName    = document.getElementById('postman-col-name').value.trim() || 'Acoustic Connect API';
-  const checkboxes = document.querySelectorAll('#postman-list input[type=checkbox]:checked');
-  const selected   = Array.from(checkboxes).map(cb => creds[parseInt(cb.value)]).filter(Boolean);
-
-  if (!selected.length) { showToast('Select at least one credential', 'red'); return; }
-
-  const collectionId = 'acoustic-' + Date.now();
-  const items = selected.map(cred => {
-    const authHeader = cred.authType === 'x-api-key'
-      ? { key: 'x-api-key', value: cred.key, type: 'text' }
-      : { key: 'Authorization', value: (cred.authType === 'Bearer' ? 'Bearer ' : '') + cred.key, type: 'text' };
-
-    return {
-      name: cred.name,
-      request: {
-        method: 'POST',
-        header: [
-          { key: 'Content-Type', value: 'application/json', type: 'text' },
-          authHeader
-        ],
-        body: {
-          mode: 'graphql',
-          graphql: {
-            query: mutation || '# Generate a mutation first',
-            variables: ''
-          }
-        },
-        url: {
-          raw: cred.endpoint,
-          protocol: cred.endpoint.split('://')[0],
-          host: (cred.endpoint.split('://')[1] || '').split('/')[0].split('.'),
-          path: (cred.endpoint.split('://')[1] || '').split('/').slice(1),
-        }
-      },
-      response: []
-    };
-  });
-
-  const collection = {
-    info: {
-      _postman_id: collectionId,
-      name: colName,
-      description: 'Acoustic Connect GraphQL API — generated by Acoustic Mutation Builder',
-      schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json'
-    },
-    item: items,
-    variable: []
-  };
-
-  const blob = new Blob([JSON.stringify(collection, null, 2)], { type: 'application/json' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href = url;
-  a.download = colName.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '_postman_collection.json';
-  a.click();
-  URL.revokeObjectURL(url);
-  closePostmanModal();
-  showToast('Postman collection downloaded');
-}
-
-// Close modals on backdrop click
-document.getElementById('save-modal').addEventListener('click', function(e) {
-  if (e.target === this) closeSaveModal();
-});
-document.getElementById('postman-modal').addEventListener('click', function(e) {
-  if (e.target === this) closePostmanModal();
-});
-
-// Enter key in name input
-document.getElementById('cred-name-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') saveCredential();
-});
-
-// Init on load
-renderCredSelect();
-
-
-function onHeaderToggleChange() {
-  if (window._lastFileBuffer) parseFromBuffer(window._lastFileBuffer);
-}
-
-function showHeaderPreview(rows, hasHeader) {
-  const el = document.getElementById('header-row-preview');
-  if (!rows || rows.length === 0) { el.classList.remove('visible'); return; }
-  const r0 = rows[0] || [];
-  const r1 = rows[1] || [];
-  const name0 = String(r0[0] || '').trim() || '(empty)';
-  const type0 = String(r0[1] || '').trim() || '(empty)';
-  const name1 = String(r1[0] || '').trim() || '(empty)';
-  const type1 = String(r1[1] || '').trim() || '(empty)';
-  if (hasHeader) {
-    el.innerHTML =
-      '<span class="skip-row">Row 1 skipped (header): ' + escHtml(name0) + ' | ' + escHtml(type0) + '</span><br>' +
-      '<span class="data-row">Row 2 first data row: ' + escHtml(name1) + ' | ' + escHtml(type1) + '</span>';
-  } else {
-    el.innerHTML =
-      '<span class="data-row">Row 1 first data row: ' + escHtml(name0) + ' | ' + escHtml(type0) + '</span><br>' +
-      '<span class="data-row">Row 2: ' + escHtml(name1) + ' | ' + escHtml(type1) + '</span>';
-  }
-  el.classList.add('visible');
-}
-
-</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-  :root {
-    --bg:        #0d0f12;
-    --surface:   #13161b;
-    --surface2:  #1a1e25;
-    --border:    #252a33;
-    --border2:   #2e3540;
-    --text:      #e8eaf0;
-    --muted:     #7a8494;
-    --accent:    #4f8ef7;
-    --accent-dim:#1e3260;
-    --green:     #3ecf8e;
-    --green-dim: #0d3326;
-    --amber:     #f5a623;
-    --amber-dim: #3d2800;
-    --purple:    #a78bfa;
-    --purple-dim:#2d1f5e;
-    --red:       #f56565;
-    --mono: 'IBM Plex Mono', monospace;
-    --sans: 'IBM Plex Sans', sans-serif;
-    --radius: 8px;
-    --radius-lg: 12px;
-  }
-
-  html { font-size: 14px; }
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--sans);
-    font-weight: 300;
-    min-height: 100vh;
-    line-height: 1.6;
-  }
-
-  /* ── Layout ── */
-  .app-shell {
-    display: grid;
-    grid-template-columns: 240px 1fr;
-    min-height: 100vh;
-  }
-
-  /* ── Sidebar ── */
-  .sidebar {
-    background: var(--surface);
-    border-right: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    padding: 0;
-    position: sticky;
-    top: 0;
-    height: 100vh;
-    overflow: hidden;
-  }
-
-  .sidebar-logo {
-    padding: 24px 20px 20px;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .sidebar-logo .wordmark {
-    font-family: var(--mono);
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    color: var(--accent);
-  }
-
-  .sidebar-logo .tagline {
-    font-size: 11px;
-    color: var(--muted);
-    margin-top: 3px;
-  }
-
-  .step-nav {
-    padding: 20px 0;
-    flex: 1;
-  }
-
-  .step-item {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    padding: 10px 20px;
-    cursor: pointer;
-    transition: background 0.15s;
-    position: relative;
-  }
-
-  .step-item:hover { background: var(--surface2); }
-  .step-item.active { background: var(--surface2); }
-
-  .step-item.active::before {
-    content: '';
-    position: absolute;
-    left: 0; top: 0; bottom: 0;
-    width: 2px;
-    background: var(--accent);
-  }
-
-  .step-num {
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    background: var(--surface2);
-    border: 1px solid var(--border2);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-family: var(--mono);
-    font-size: 10px;
-    color: var(--muted);
-    flex-shrink: 0;
-    margin-top: 1px;
-    transition: all 0.2s;
-  }
-
-  .step-item.active .step-num,
-  .step-item.done .step-num {
-    background: var(--accent-dim);
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-
-  .step-item.done .step-num {
-    background: var(--green-dim);
-    border-color: var(--green);
-    color: var(--green);
-  }
-
-  .step-label { font-size: 12px; }
-  .step-label strong { display: block; font-weight: 500; color: var(--text); margin-bottom: 1px; }
-  .step-label span { font-size: 11px; color: var(--muted); }
-
-  .step-item.active .step-label strong { color: var(--accent); }
-  .step-item.done .step-label strong { color: var(--green); }
-
-  .sidebar-footer {
-    padding: 16px 20px;
-    border-top: 1px solid var(--border);
-    font-size: 11px;
-    color: var(--muted);
-  }
-
-  /* ── Main ── */
-  .main {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .topbar {
-    padding: 16px 32px;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: var(--surface);
-    position: sticky;
-    top: 0;
-    z-index: 10;
-  }
-
-  .topbar-title {
-    font-family: var(--mono);
-    font-size: 12px;
-    font-weight: 500;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-    text-transform: uppercase;
-  }
-
-  .stat-pills {
-    display: flex;
-    gap: 8px;
-  }
-
-  .stat-pill {
-    font-family: var(--mono);
-    font-size: 11px;
-    padding: 3px 10px;
-    border-radius: 20px;
-    border: 1px solid var(--border2);
-    color: var(--muted);
-    background: var(--surface2);
-  }
-
-  .stat-pill.has-data { color: var(--text); border-color: var(--accent); background: var(--accent-dim); }
-
-  /* ── Content panels ── */
-  .content { padding: 32px; flex: 1; }
-
-  .panel {
-    display: none;
-    animation: fadeIn 0.2s ease;
-  }
-
-  .panel.active { display: block; }
-
-  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-
-  .panel-heading {
-    margin-bottom: 24px;
-  }
-
-  .panel-heading h2 {
-    font-family: var(--mono);
-    font-size: 16px;
-    font-weight: 500;
-    color: var(--text);
-    margin-bottom: 4px;
-  }
-
-  .panel-heading p {
-    font-size: 12px;
-    color: var(--muted);
-  }
-
-  /* ── Drop zone ── */
-  .dropzone {
-    border: 1.5px dashed var(--border2);
-    border-radius: var(--radius-lg);
-    padding: 48px 32px;
-    text-align: center;
-    cursor: pointer;
-    transition: all 0.2s;
-    background: var(--surface);
-    position: relative;
-  }
-
-  .dropzone:hover, .dropzone.drag-over {
-    border-color: var(--accent);
-    background: var(--accent-dim);
-  }
-
-  .dropzone input[type=file] {
-    position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
-  }
-
-  .drop-icon {
-    width: 40px;
-    height: 40px;
-    margin: 0 auto 14px;
-    background: var(--surface2);
-    border: 1px solid var(--border2);
-    border-radius: var(--radius);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .drop-icon svg { width: 18px; height: 18px; stroke: var(--muted); fill: none; }
-
-  .drop-title { font-size: 14px; font-weight: 500; color: var(--text); margin-bottom: 4px; }
-  .drop-sub { font-size: 12px; color: var(--muted); }
-
-  .drop-accepted {
-    display: inline-block;
-    margin-top: 12px;
-    font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    padding: 3px 10px;
-    border-radius: 20px;
-  }
-
-  .file-loaded {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 14px 18px;
-    background: var(--green-dim);
-    border: 1px solid var(--green);
-    border-radius: var(--radius);
-    margin-top: 16px;
-  }
-
-  .file-loaded svg { width: 16px; height: 16px; stroke: var(--green); flex-shrink: 0; }
-  .file-loaded-name { font-family: var(--mono); font-size: 12px; color: var(--green); flex: 1; }
-  .file-loaded-count { font-size: 11px; color: var(--muted); }
-
-  .btn-reupload {
-    font-size: 11px;
-    color: var(--muted);
-    background: none;
-    border: 1px solid var(--border2);
-    padding: 3px 10px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-family: var(--mono);
-    transition: all 0.15s;
-  }
-
-  .btn-reupload:hover { border-color: var(--accent); color: var(--accent); }
-
-  /* ── Config fields ── */
-  .config-grid {
-    display: grid;
-    grid-template-columns: 1fr 160px;
-    gap: 16px;
-    margin-bottom: 24px;
-  }
-
-  .field-group { display: flex; flex-direction: column; gap: 6px; }
-
-  .field-label {
-    font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-
-  .field-input {
-    background: var(--surface);
-    border: 1px solid var(--border2);
-    border-radius: var(--radius);
-    padding: 9px 12px;
-    font-family: var(--mono);
-    font-size: 12px;
-    color: var(--text);
-    transition: border-color 0.15s;
-    width: 100%;
-  }
-
-  .field-input:focus {
-    outline: none;
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(79,142,247,0.1);
-  }
-
-  /* ── Type legend ── */
-  .type-legend {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    margin-bottom: 20px;
-  }
-
-  .type-badge {
-    font-family: var(--mono);
-    font-size: 10px;
-    font-weight: 500;
-    letter-spacing: 0.06em;
-    padding: 4px 10px;
-    border-radius: 4px;
-    border: 1px solid;
-  }
-
-  .type-badge.TEXT    { background: rgba(79,142,247,.12);  border-color: #4f8ef7; color: #8ab4fb; }
-  .type-badge.BOOLEAN { background: rgba(62,207,142,.12);  border-color: #3ecf8e; color: #5dd9a6; }
-  .type-badge.NUMBER  { background: rgba(245,166,35,.12);  border-color: #f5a623; color: #f5c060; }
-  .type-badge.DATE    { background: rgba(167,139,250,.12); border-color: #a78bfa; color: #c4aeff; }
-
-  /* ── Attribute table ── */
-  .attr-toolbar {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 12px;
-    align-items: center;
-  }
-
-  .search-input {
-    background: var(--surface);
-    border: 1px solid var(--border2);
-    border-radius: var(--radius);
-    padding: 7px 12px;
-    font-family: var(--mono);
-    font-size: 12px;
-    color: var(--text);
-    flex: 1;
-    max-width: 280px;
-  }
-
-  .search-input:focus { outline: none; border-color: var(--accent); }
-  .search-input::placeholder { color: var(--muted); }
-
-  .filter-btn {
-    font-family: var(--mono);
-    font-size: 10px;
-    font-weight: 500;
-    letter-spacing: 0.06em;
-    padding: 5px 12px;
-    border-radius: 4px;
-    border: 1px solid var(--border2);
-    background: transparent;
-    color: var(--muted);
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-
-  .filter-btn:hover { border-color: var(--border2); color: var(--text); }
-  .filter-btn.active-TEXT    { background: rgba(79,142,247,.12);  border-color: #4f8ef7; color: #8ab4fb; }
-  .filter-btn.active-BOOLEAN { background: rgba(62,207,142,.12);  border-color: #3ecf8e; color: #5dd9a6; }
-  .filter-btn.active-NUMBER  { background: rgba(245,166,35,.12);  border-color: #f5a623; color: #f5c060; }
-  .filter-btn.active-DATE    { background: rgba(167,139,250,.12); border-color: #a78bfa; color: #c4aeff; }
-  .filter-btn.active-ALL     { background: var(--surface2); border-color: var(--accent); color: var(--accent); }
-
-  .attr-table-wrap {
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    overflow: hidden;
-  }
-
-  .attr-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 12px;
-  }
-
-  .attr-table thead tr {
-    background: var(--surface2);
-  }
-
-  .attr-table th {
-    padding: 9px 14px;
-    font-family: var(--mono);
-    font-size: 10px;
-    font-weight: 500;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--muted);
-    text-align: left;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .attr-table td {
-    padding: 8px 14px;
-    border-bottom: 1px solid var(--border);
-    color: var(--text);
-  }
-
-  .attr-table tbody tr:last-child td { border-bottom: none; }
-  .attr-table tbody tr:hover { background: var(--surface2); }
-
-  .attr-table .col-num { color: var(--muted); font-family: var(--mono); font-size: 10px; width: 36px; }
-  .attr-table .col-name { font-family: var(--mono); font-size: 11px; }
-
-  .attr-scroll { max-height: 380px; overflow-y: auto; }
-  .attr-scroll::-webkit-scrollbar { width: 4px; }
-  .attr-scroll::-webkit-scrollbar-track { background: var(--surface); }
-  .attr-scroll::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
-
-  .attr-table-footer {
-    padding: 8px 14px;
-    background: var(--surface2);
-    border-top: 1px solid var(--border);
-    font-size: 11px;
-    color: var(--muted);
-    font-family: var(--mono);
-  }
-
-  /* ── Buttons ── */
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    padding: 10px 18px;
-    border-radius: var(--radius);
-    font-family: var(--mono);
-    font-size: 12px;
-    font-weight: 500;
-    letter-spacing: 0.04em;
-    cursor: pointer;
-    transition: all 0.15s;
-    border: 1px solid;
-    text-decoration: none;
-  }
-
-  .btn-primary {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #fff;
-  }
-
-  .btn-primary:hover { background: #6ba0f9; border-color: #6ba0f9; }
-  .btn-primary:active { transform: scale(0.98); }
-
-  .btn-secondary {
-    background: var(--surface2);
-    border-color: var(--border2);
-    color: var(--text);
-  }
-
-  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
-
-  .btn-success {
-    background: var(--green-dim);
-    border-color: var(--green);
-    color: var(--green);
-  }
-
-  .btn-row {
-    display: flex;
-    gap: 10px;
-    margin-top: 24px;
-    align-items: center;
-  }
-
-  .btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; flex-shrink: 0; }
-
-  /* ── Output panel ── */
-  .output-meta {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
-    margin-bottom: 24px;
-  }
-
-  .meta-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 14px 16px;
-  }
-
-  .meta-card .meta-label {
-    font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin-bottom: 6px;
-  }
-
-  .meta-card .meta-value {
-    font-family: var(--mono);
-    font-size: 20px;
-    font-weight: 500;
-    color: var(--text);
-  }
-
-  .meta-card.blue .meta-value { color: var(--accent); }
-  .meta-card.green .meta-value { color: var(--green); }
-  .meta-card.amber .meta-value { color: var(--amber); }
-  .meta-card.purple .meta-value { color: var(--purple); }
-
-  .output-label {
-    font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin-bottom: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .output-label .copy-status {
-    font-size: 11px;
-    color: var(--green);
-    opacity: 0;
-    transition: opacity 0.2s;
-  }
-
-  .output-label .copy-status.visible { opacity: 1; }
-
-  .code-block {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    overflow: hidden;
-  }
-
-  .code-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 16px;
-    background: var(--surface2);
-    border-bottom: 1px solid var(--border);
-  }
-
-  .code-lang {
-    font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-
-  .code-actions { display: flex; gap: 8px; }
-
-  .code-pre {
-    margin: 0;
-    padding: 16px;
-    font-family: var(--mono);
-    font-size: 11.5px;
-    line-height: 1.7;
-    color: var(--text);
-    overflow: auto;
-    max-height: 400px;
-    white-space: pre;
-  }
-
-  .code-pre::-webkit-scrollbar { width: 4px; height: 4px; }
-  .code-pre::-webkit-scrollbar-track { background: transparent; }
-  .code-pre::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
-
-  /* Syntax highlights */
-  .kw { color: #f5a623; }
-  .fn { color: #4f8ef7; }
-  .str { color: #3ecf8e; }
-  .key { color: #a78bfa; }
-  .val { color: #f5a623; }
-  .cm { color: var(--muted); }
-
-  /* ── Empty state ── */
-  .empty-state {
-    text-align: center;
-    padding: 60px 32px;
-  }
-
-  .empty-icon {
-    width: 48px;
-    height: 48px;
-    margin: 0 auto 16px;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .empty-icon svg { width: 22px; height: 22px; stroke: var(--muted); fill: none; }
-  .empty-state h3 { font-size: 14px; font-weight: 500; color: var(--muted); margin-bottom: 4px; }
-  .empty-state p { font-size: 12px; color: var(--muted); }
-
-  /* ── Section separator ── */
-  .section-sep {
-    border: none;
-    border-top: 1px solid var(--border);
-    margin: 28px 0;
-  }
-
-  .section-title {
-    font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin-bottom: 14px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .section-title::after {
-    content: '';
-    flex: 1;
-    border-top: 1px solid var(--border);
-  }
-
-  /* ── Toast ── */
-  .toast {
-    position: fixed;
-    bottom: 24px;
-    right: 24px;
-    background: var(--surface2);
-    border: 1px solid var(--green);
-    color: var(--green);
-    font-family: var(--mono);
-    font-size: 12px;
-    padding: 10px 18px;
-    border-radius: var(--radius);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    transform: translateY(80px);
-    opacity: 0;
-    transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
-    z-index: 100;
-  }
-
-  .toast.show { transform: translateY(0); opacity: 1; }
-  .toast svg { width: 14px; height: 14px; stroke: var(--green); fill: none; }
-
-  /* ── API Execution ── */
-  .section-sep { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
-
-  .api-config {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    overflow: hidden;
-    margin-bottom: 16px;
-  }
-
-  .api-config-header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 12px 16px;
-    background: var(--surface2);
-    border-bottom: 1px solid var(--border);
-    cursor: pointer; user-select: none;
-  }
-
-  .api-config-header-left { display: flex; align-items: center; gap: 10px; }
-  .api-config-title { font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: 0.06em; color: var(--text); text-transform: uppercase; }
-  .api-config-sub   { font-size: 11px; color: var(--muted); }
-
-  .api-config-toggle { display: flex; align-items: center; gap: 6px; }
-  .api-config-toggle svg { width: 13px; height: 13px; stroke: var(--muted); fill: none; transition: transform 0.2s; }
-  .api-config-toggle.open svg { transform: rotate(180deg); }
-
-  .api-config-body { padding: 16px; display: none; }
-  .api-config-body.open { display: block; }
-
-  .api-fields { display: grid; grid-template-columns: 1fr 180px; gap: 12px; margin-bottom: 12px; }
-  .api-field { display: flex; flex-direction: column; gap: 5px; }
-  .api-label {
-    font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em;
-    text-transform: uppercase; color: var(--muted);
-    display: flex; align-items: center; gap: 6px;
-  }
-  .api-label-badge {
-    font-size: 9px; padding: 1px 6px; border-radius: 3px;
-    background: var(--red-dim); border: 1px solid var(--red); color: var(--red);
-  }
-  .api-input {
-    background: var(--surface2); border: 1px solid var(--border2);
-    border-radius: 6px; padding: 8px 12px;
-    font-family: var(--mono); font-size: 12px; color: var(--text);
-    transition: border-color 0.15s; width: 100%;
-  }
-  .api-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79,142,247,.1); }
-  .api-input::placeholder { color: var(--muted); }
-  .api-input.key-input { letter-spacing: 0.04em; }
-
-  .api-auth-row { display: grid; grid-template-columns: 160px 1fr; gap: 12px; }
-
-  .api-select {
-    background: var(--surface2); border: 1px solid var(--border2);
-    border-radius: 6px; padding: 8px 12px;
-    font-family: var(--mono); font-size: 12px; color: var(--text);
-    cursor: pointer; transition: border-color 0.15s; width: 100%;
-    appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237a8494' stroke-width='2'%3E%3Cpath d='M19.5 8.25l-7.5 7.5-7.5-7.5'/%3E%3C/svg%3E");
-    background-repeat: no-repeat; background-position: right 10px center; background-size: 14px;
-    padding-right: 32px;
-  }
-  .api-select:focus { outline: none; border-color: var(--accent); }
-
-  .api-hint { font-size: 11px; color: var(--muted); margin-top: 8px; }
-  .api-hint a { color: var(--accent); text-decoration: none; }
-  .api-hint a:hover { text-decoration: underline; }
-
-  .key-visibility { display: flex; gap: 0; }
-  .key-visibility .api-input { border-radius: 6px 0 0 6px; border-right: none; flex: 1; }
-  .toggle-visibility {
-    padding: 0 12px; background: var(--surface2); border: 1px solid var(--border2);
-    border-radius: 0 6px 6px 0; cursor: pointer; color: var(--muted);
-    display: flex; align-items: center; transition: all 0.15s;
-  }
-  .toggle-visibility:hover { color: var(--text); border-color: var(--accent); }
-  .toggle-visibility svg { width: 14px; height: 14px; stroke: currentColor; fill: none; }
-
-  /* Execute button */
-  .btn-execute {
-    display: inline-flex; align-items: center; gap: 8px;
-    padding: 10px 20px; border-radius: 8px;
-    font-family: var(--mono); font-size: 12px; font-weight: 500;
-    letter-spacing: 0.04em; cursor: pointer;
-    border: 1px solid var(--purple); background: var(--purple-dim);
-    color: var(--purple); transition: all 0.15s;
-  }
-  .btn-execute:hover { background: var(--purple); color: #fff; }
-  .btn-execute:disabled { opacity: 0.4; cursor: not-allowed; }
-  .btn-execute svg { width: 14px; height: 14px; stroke: currentColor; fill: none; }
-  .btn-execute.loading { opacity: 0.7; pointer-events: none; }
-
-  /* Response panel */
-  .response-panel {
-    display: none; margin-top: 20px;
-    border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
-    animation: fadeUp 0.2s ease;
-  }
-  .response-panel.visible { display: block; }
-
-  .response-header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 16px; background: var(--surface2);
-    border-bottom: 1px solid var(--border);
-  }
-  .response-header-left { display: flex; align-items: center; gap: 10px; }
-  .response-status {
-    display: flex; align-items: center; gap: 6px;
-    font-family: var(--mono); font-size: 11px; font-weight: 500;
-  }
-  .response-status .dot {
-    width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
-  }
-  .response-status.success .dot { background: var(--green); }
-  .response-status.error   .dot { background: var(--red); }
-  .response-status.success { color: var(--green); }
-  .response-status.error   { color: var(--red); }
-
-  .response-time { font-family: var(--mono); font-size: 10px; color: var(--muted); }
-
-  .response-body {
-    padding: 14px 16px;
-    font-family: var(--mono); font-size: 11.5px; line-height: 1.7;
-    color: var(--text); overflow-x: auto; max-height: 300px; overflow-y: auto;
-    white-space: pre-wrap; word-break: break-all;
-  }
-  .response-body::-webkit-scrollbar { width: 4px; }
-  .response-body::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
-
-  .response-body .json-key    { color: var(--accent); }
-  .response-body .json-string { color: var(--green); }
-  .response-body .json-num    { color: var(--amber); }
-  .response-body .json-bool   { color: var(--purple); }
-  .response-body .json-null   { color: var(--muted); }
-
-  .cors-notice {
-    margin-top: 12px; padding: 12px 14px;
-    background: var(--amber-dim); border: 1px solid rgba(245,166,35,.3);
-    border-radius: 8px; font-size: 12px; color: var(--amber); display: none;
-  }
-  .cors-notice.visible { display: block; }
-  .cors-notice strong { font-weight: 500; display: block; margin-bottom: 3px; }
-
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .spinner { display: inline-block; animation: spin 0.8s linear infinite; }
-
-
-  /* ── Credential Manager ── */
-  .cred-bar {
-    display: flex; align-items: center; gap: 10px;
-    padding: 10px 16px;
-    background: var(--surface2); border-bottom: 1px solid var(--border);
-  }
-  .cred-bar-label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
-
-  .cred-select {
-    flex: 1; background: var(--surface); border: 1px solid var(--border2);
-    border-radius: 6px; padding: 6px 10px;
-    font-family: var(--mono); font-size: 12px; color: var(--text);
-    appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237a8494' stroke-width='2'%3E%3Cpath d='M19.5 8.25l-7.5 7.5-7.5-7.5'/%3E%3C/svg%3E");
-    background-repeat: no-repeat; background-position: right 8px center; background-size: 12px;
-    padding-right: 28px; cursor: pointer;
-  }
-  .cred-select:focus { outline: none; border-color: var(--accent); }
-
-  .cred-btn {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 5px 12px; border-radius: 6px; font-family: var(--mono);
-    font-size: 11px; font-weight: 500; letter-spacing: 0.04em;
-    cursor: pointer; border: 1px solid; transition: all 0.15s; white-space: nowrap;
-  }
-  .cred-btn svg { width: 12px; height: 12px; stroke: currentColor; fill: none; }
-  .cred-btn.save   { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
-  .cred-btn.save:hover { background: var(--accent); color: #fff; }
-  .cred-btn.delete { background: transparent; border-color: var(--border2); color: var(--muted); }
-  .cred-btn.delete:hover { border-color: var(--red); color: var(--red); }
-  .cred-btn.postman { background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
-  .cred-btn.postman:hover { background: var(--amber); color: #000; }
-  .cred-btn:disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
-
-  /* Save modal */
-  .modal-backdrop {
-    display: none; position: fixed; inset: 0;
-    background: rgba(0,0,0,.6); z-index: 200;
-    align-items: center; justify-content: center;
-  }
-  .modal-backdrop.open { display: flex; }
-
-  .modal {
-    background: var(--surface); border: 1px solid var(--border2);
-    border-radius: 12px; padding: 24px; width: 380px; max-width: 90vw;
-  }
-  .modal h3 { font-size: 14px; font-weight: 500; margin-bottom: 4px; color: var(--text); }
-  .modal p  { font-size: 12px; color: var(--muted); margin-bottom: 18px; }
-  .modal-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
-  .modal-label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
-  .modal-input {
-    background: var(--surface2); border: 1px solid var(--border2);
-    border-radius: 6px; padding: 9px 12px; font-family: var(--mono);
-    font-size: 12px; color: var(--text); width: 100%;
-  }
-  .modal-input:focus { outline: none; border-color: var(--accent); }
-  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
-  .modal-btn {
-    padding: 8px 18px; border-radius: 7px; font-family: var(--mono);
-    font-size: 12px; font-weight: 500; cursor: pointer; border: 1px solid; transition: all 0.15s;
-  }
-  .modal-btn.confirm { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .modal-btn.confirm:hover { background: #6ba0f9; }
-  .modal-btn.cancel  { background: transparent; border-color: var(--border2); color: var(--muted); }
-  .modal-btn.cancel:hover { border-color: var(--text); color: var(--text); }
-
-  /* Postman modal */
-  .postman-list { max-height: 200px; overflow-y: auto; margin-bottom: 14px; }
-  .postman-list::-webkit-scrollbar { width: 4px; }
-  .postman-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
-  .postman-item {
-    display: flex; align-items: center; gap: 10px;
-    padding: 8px 10px; border-radius: 6px; cursor: pointer;
-    transition: background 0.12s; border: 1px solid transparent; margin-bottom: 4px;
-  }
-  .postman-item:hover { background: var(--surface2); }
-  .postman-item.selected { background: var(--accent-dim); border-color: rgba(79,142,247,.3); }
-  .postman-item input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; flex-shrink: 0; cursor: pointer; }
-  .postman-item-name { font-family: var(--mono); font-size: 12px; color: var(--text); flex: 1; }
-  .postman-item-meta { font-size: 10px; color: var(--muted); font-family: var(--mono); }
-  .postman-empty { font-size: 12px; color: var(--muted); text-align: center; padding: 20px; }
-
-  .postman-collection-name { margin-bottom: 14px; }
-
-
-  /* ── Header row toggle ── */
-  .header-toggle {
-    display: flex; align-items: center; gap: 12px;
-    padding: 10px 16px; margin-top: 10px;
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 8px;
-  }
-  .header-toggle-label { font-size: 12px; color: var(--text); flex: 1; }
-  .header-toggle-label span { font-size: 11px; color: var(--muted); display: block; margin-top: 1px; }
-  .toggle-switch { position: relative; width: 36px; height: 20px; flex-shrink: 0; }
-  .toggle-switch input { opacity: 0; width: 0; height: 0; }
-  .toggle-track {
-    position: absolute; inset: 0; border-radius: 20px;
-    background: var(--border2); cursor: pointer; transition: background 0.2s;
-  }
-  .toggle-track::after {
-    content: ''; position: absolute; left: 3px; top: 3px;
-    width: 14px; height: 14px; border-radius: 50%;
-    background: var(--muted); transition: all 0.2s;
-  }
-  .toggle-switch input:checked + .toggle-track { background: var(--accent); }
-  .toggle-switch input:checked + .toggle-track::after { transform: translateX(16px); background: #fff; }
-  .header-row-preview {
-    font-family: var(--mono); font-size: 10px; color: var(--muted);
-    margin-top: 6px; padding: 6px 10px;
-    background: var(--surface2); border-radius: 5px;
-    border: 1px solid var(--border);
-    display: none;
-  }
-  .header-row-preview.visible { display: block; }
-  .header-row-preview .skip-row { color: var(--amber); text-decoration: line-through; }
-  .header-row-preview .data-row { color: var(--green); }
-
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d0f12;--surface:#13161b;--surface2:#1a1e25;
+  --border:#252a33;--border2:#2e3540;
+  --text:#e8eaf0;--muted:#7a8494;
+  --accent:#4f8ef7;--accent-dim:#1e3260;
+  --green:#3ecf8e;--green-dim:#0d3326;
+  --amber:#f5a623;--amber-dim:#3d2800;
+  --purple:#a78bfa;--purple-dim:#2d1f5e;
+  --red:#f56565;--red-dim:#3d1212;
+  --mono:'IBM Plex Mono',monospace;
+  --sans:'IBM Plex Sans',sans-serif;
+  --radius:8px;--radius-lg:12px;
+}
+html{font-size:14px}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);font-weight:300;min-height:100vh;line-height:1.6}
+.app-shell{display:grid;grid-template-columns:240px 1fr;min-height:100vh}
+
+/* Sidebar */
+.sidebar{background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow:hidden}
+.sidebar-logo{padding:24px 20px 20px;border-bottom:1px solid var(--border)}
+.sidebar-logo .wordmark{font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.15em;text-transform:uppercase;color:var(--accent)}
+.sidebar-logo .tagline{font-size:11px;color:var(--muted);margin-top:3px}
+.step-nav{padding:20px 0;flex:1}
+.step-item{display:flex;align-items:flex-start;gap:12px;padding:10px 20px;cursor:pointer;transition:background .15s;position:relative}
+.step-item:hover,.step-item.active{background:var(--surface2)}
+.step-item.active::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--accent)}
+.step-num{width:22px;height:22px;border-radius:50%;background:var(--surface2);border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;color:var(--muted);flex-shrink:0;margin-top:1px;transition:all .2s}
+.step-item.active .step-num{background:var(--accent-dim);border-color:var(--accent);color:var(--accent)}
+.step-item.done .step-num{background:var(--green-dim);border-color:var(--green);color:var(--green)}
+.step-label{font-size:12px}
+.step-label strong{display:block;font-weight:500;color:var(--text);margin-bottom:1px}
+.step-label span{font-size:11px;color:var(--muted)}
+.step-item.active .step-label strong{color:var(--accent)}
+.step-item.done .step-label strong{color:var(--green)}
+.sidebar-footer{padding:16px 20px;border-top:1px solid var(--border);font-size:11px;color:var(--muted)}
+
+/* Main */
+.main{display:flex;flex-direction:column}
+.topbar{padding:16px 32px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:var(--surface);position:sticky;top:0;z-index:10}
+.topbar-title{font-family:var(--mono);font-size:12px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.stat-pills{display:flex;gap:8px}
+.stat-pill{font-family:var(--mono);font-size:11px;padding:3px 10px;border-radius:20px;border:1px solid var(--border2);color:var(--muted);background:var(--surface2)}
+.stat-pill.has-data{color:var(--text);border-color:var(--accent);background:var(--accent-dim)}
+
+/* Panels */
+.content{padding:32px;flex:1}
+.panel{display:none;animation:fadeIn .2s ease}
+.panel.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+.panel-heading{margin-bottom:24px}
+.panel-heading h2{font-family:var(--mono);font-size:16px;font-weight:500;color:var(--text);margin-bottom:4px}
+.panel-heading p{font-size:12px;color:var(--muted)}
+
+/* Dropzone */
+.dropzone{border:1.5px dashed var(--border2);border-radius:var(--radius-lg);padding:48px 32px;text-align:center;cursor:pointer;transition:all .2s;background:var(--surface);position:relative}
+.dropzone:hover,.dropzone.drag-over{border-color:var(--accent);background:var(--accent-dim)}
+.dropzone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.drop-icon{width:40px;height:40px;margin:0 auto 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);display:flex;align-items:center;justify-content:center}
+.drop-icon svg{width:18px;height:18px;stroke:var(--muted);fill:none}
+.drop-title{font-size:14px;font-weight:500;color:var(--text);margin-bottom:4px}
+.drop-sub{font-size:12px;color:var(--muted)}
+.drop-accepted{display:inline-block;margin-top:12px;font-family:var(--mono);font-size:10px;letter-spacing:.08em;color:var(--muted);background:var(--surface2);border:1px solid var(--border);padding:3px 10px;border-radius:20px}
+
+/* Header toggle */
+.header-toggle{display:flex;align-items:center;gap:12px;padding:10px 16px;margin-top:10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius)}
+.header-toggle-label{font-size:12px;color:var(--text);flex:1}
+.header-toggle-label span{font-size:11px;color:var(--muted);display:block;margin-top:1px}
+.toggle-switch{position:relative;width:36px;height:20px;flex-shrink:0}
+.toggle-switch input{opacity:0;width:0;height:0}
+.toggle-track{position:absolute;inset:0;border-radius:20px;background:var(--border2);cursor:pointer;transition:background .2s}
+.toggle-track::after{content:'';position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:var(--muted);transition:all .2s}
+.toggle-switch input:checked + .toggle-track{background:var(--accent)}
+.toggle-switch input:checked + .toggle-track::after{transform:translateX(16px);background:#fff}
+.header-preview{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:6px;padding:6px 10px;background:var(--surface2);border-radius:5px;border:1px solid var(--border);display:none}
+.header-preview.visible{display:block}
+.header-preview .skip{color:var(--amber);text-decoration:line-through}
+.header-preview .data{color:var(--green)}
+
+/* File loaded */
+.file-loaded{display:none;align-items:center;gap:12px;padding:14px 18px;background:var(--green-dim);border:1px solid var(--green);border-radius:var(--radius);margin-top:16px}
+.file-loaded svg{width:16px;height:16px;stroke:var(--green);flex-shrink:0}
+.file-loaded-name{font-family:var(--mono);font-size:12px;color:var(--green);flex:1}
+.file-loaded-count{font-size:11px;color:var(--muted)}
+.btn-reupload{font-size:11px;color:var(--muted);background:none;border:1px solid var(--border2);padding:3px 10px;border-radius:4px;cursor:pointer;font-family:var(--mono);transition:all .15s}
+.btn-reupload:hover{border-color:var(--accent);color:var(--accent)}
+
+/* Config */
+.config-grid{display:grid;grid-template-columns:1fr auto;gap:16px;margin-bottom:24px}
+.field-group{display:flex;flex-direction:column;gap:6px}
+.field-label{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.field-input{background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius);padding:9px 12px;font-family:var(--mono);font-size:12px;color:var(--text);transition:border-color .15s;width:100%}
+.field-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(79,142,247,.1)}
+
+/* Type badges */
+.type-badge{font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.06em;padding:2px 8px;border-radius:3px;border:1px solid}
+.type-badge.TEXT{background:rgba(79,142,247,.12);border-color:#4f8ef7;color:#8ab4fb}
+.type-badge.BOOLEAN{background:rgba(62,207,142,.12);border-color:#3ecf8e;color:#5dd9a6}
+.type-badge.NUMBER{background:rgba(245,166,35,.12);border-color:#f5a623;color:#f5c060}
+.type-badge.DATE{background:rgba(167,139,250,.12);border-color:#a78bfa;color:#c4aeff}
+
+/* Preview */
+.type-legend{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+.attr-toolbar{display:flex;gap:10px;margin-bottom:12px;align-items:center}
+.search-input{background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius);padding:7px 12px;font-family:var(--mono);font-size:12px;color:var(--text);flex:1;max-width:280px}
+.search-input:focus{outline:none;border-color:var(--accent)}
+.search-input::placeholder{color:var(--muted)}
+.filter-btn{font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.06em;padding:5px 12px;border-radius:4px;border:1px solid var(--border2);background:transparent;color:var(--muted);cursor:pointer;transition:all .15s}
+.filter-btn.active-ALL{background:var(--surface2);border-color:var(--accent);color:var(--accent)}
+.filter-btn.active-TEXT{background:rgba(79,142,247,.12);border-color:#4f8ef7;color:#8ab4fb}
+.filter-btn.active-BOOLEAN{background:rgba(62,207,142,.12);border-color:#3ecf8e;color:#5dd9a6}
+.filter-btn.active-NUMBER{background:rgba(245,166,35,.12);border-color:#f5a623;color:#f5c060}
+.filter-btn.active-DATE{background:rgba(167,139,250,.12);border-color:#a78bfa;color:#c4aeff}
+.attr-table-wrap{border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;margin-bottom:20px}
+.attr-table{width:100%;border-collapse:collapse;font-size:12px}
+.attr-table thead tr{background:var(--surface2)}
+.attr-table th{padding:9px 14px;font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);text-align:left;border-bottom:1px solid var(--border)}
+.attr-table td{padding:8px 14px;border-bottom:1px solid var(--border);color:var(--text)}
+.attr-table tbody tr:last-child td{border-bottom:none}
+.attr-table tbody tr:hover{background:var(--surface2)}
+.col-num{color:var(--muted);font-family:var(--mono);font-size:10px;width:36px}
+.col-name{font-family:var(--mono);font-size:11px}
+.attr-scroll{max-height:380px;overflow-y:auto}
+.attr-scroll::-webkit-scrollbar{width:4px}
+.attr-scroll::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px}
+.attr-table-footer{padding:8px 14px;background:var(--surface2);border-top:1px solid var(--border);font-size:11px;color:var(--muted);font-family:var(--mono)}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;gap:7px;padding:10px 18px;border-radius:var(--radius);font-family:var(--mono);font-size:12px;font-weight:500;letter-spacing:.04em;cursor:pointer;transition:all .15s;border:1px solid}
+.btn svg{width:14px;height:14px;stroke:currentColor;fill:none;flex-shrink:0}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn-primary:hover{background:#6ba0f9;border-color:#6ba0f9}
+.btn-secondary{background:var(--surface2);border-color:var(--border2);color:var(--text)}
+.btn-secondary:hover{border-color:var(--accent);color:var(--accent)}
+.btn-success{background:var(--green-dim);border-color:var(--green);color:var(--green)}
+.btn-row{display:flex;gap:10px;margin-top:24px;align-items:center}
+.section-sep{border:none;border-top:1px solid var(--border);margin:24px 0}
+.section-title{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:14px;display:flex;align-items:center;gap:10px}
+.section-title::after{content:'';flex:1;border-top:1px solid var(--border)}
+
+/* Output */
+.output-meta{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+.meta-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px}
+.meta-label{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.meta-value{font-family:var(--mono);font-size:20px;font-weight:500;color:var(--text)}
+.meta-card.blue .meta-value{color:var(--accent)}
+.meta-card.green .meta-value{color:var(--green)}
+.meta-card.amber .meta-value{color:var(--amber)}
+.output-label{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;justify-content:space-between}
+.copy-status{font-size:11px;color:var(--green);opacity:0;transition:opacity .2s}
+.copy-status.visible{opacity:1}
+.code-block{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
+.code-header{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--surface2);border-bottom:1px solid var(--border)}
+.code-lang{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.code-actions{display:flex;gap:8px}
+.code-pre{margin:0;padding:16px;font-family:var(--mono);font-size:11.5px;line-height:1.7;color:var(--text);overflow:auto;max-height:400px;white-space:pre}
+.code-pre::-webkit-scrollbar{width:4px;height:4px}
+.code-pre::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px}
+
+/* API Config */
+.api-config{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:16px}
+.api-config-header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--surface2);border-bottom:1px solid var(--border);cursor:pointer;user-select:none}
+.api-config-header-left{display:flex;align-items:center;gap:10px}
+.api-config-title{font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.06em;color:var(--text);text-transform:uppercase}
+.api-config-sub{font-size:11px;color:var(--muted)}
+.api-config-toggle svg{width:13px;height:13px;stroke:var(--muted);fill:none;transition:transform .2s}
+.api-config-toggle.open svg{transform:rotate(180deg)}
+.api-config-body{padding:0;display:none}
+.api-config-body.open{display:block}
+.cred-bar{display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--surface2);border-bottom:1px solid var(--border)}
+.cred-bar-label{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);white-space:nowrap}
+.cred-select{flex:1;background:var(--surface);border:1px solid var(--border2);border-radius:6px;padding:6px 28px 6px 10px;font-family:var(--mono);font-size:12px;color:var(--text);appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237a8494' stroke-width='2'%3E%3Cpath d='M19.5 8.25l-7.5 7.5-7.5-7.5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center;background-size:12px;cursor:pointer}
+.cred-select:focus{outline:none;border-color:var(--accent)}
+.cred-btn{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:6px;font-family:var(--mono);font-size:11px;font-weight:500;cursor:pointer;border:1px solid;transition:all .15s;white-space:nowrap}
+.cred-btn svg{width:12px;height:12px;stroke:currentColor;fill:none}
+.cred-btn.save{background:var(--accent-dim);border-color:var(--accent);color:var(--accent)}
+.cred-btn.save:hover{background:var(--accent);color:#fff}
+.cred-btn.del{background:transparent;border-color:var(--border2);color:var(--muted)}
+.cred-btn.del:hover{border-color:var(--red);color:var(--red)}
+.cred-btn:disabled{opacity:.35;cursor:not-allowed;pointer-events:none}
+.api-inner{padding:16px}
+.api-fields{display:grid;grid-template-columns:1fr 180px;gap:12px;margin-bottom:12px}
+.api-field{display:flex;flex-direction:column;gap:5px}
+.api-label{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.api-label-badge{font-size:9px;padding:1px 6px;border-radius:3px;background:var(--red-dim);border:1px solid var(--red);color:var(--red)}
+.api-input{background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:8px 12px;font-family:var(--mono);font-size:12px;color:var(--text);transition:border-color .15s;width:100%}
+.api-input:focus{outline:none;border-color:var(--accent)}
+.api-input::placeholder{color:var(--muted)}
+.api-auth-row{display:grid;grid-template-columns:160px 1fr;gap:12px}
+.api-select{background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:8px 32px 8px 12px;font-family:var(--mono);font-size:12px;color:var(--text);cursor:pointer;width:100%;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237a8494' stroke-width='2'%3E%3Cpath d='M19.5 8.25l-7.5 7.5-7.5-7.5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;background-size:14px}
+.api-select:focus{outline:none;border-color:var(--accent)}
+.api-hint{font-size:11px;color:var(--muted);margin-top:8px}
+.key-row{display:flex}
+.key-row .api-input{border-radius:6px 0 0 6px;border-right:none;flex:1}
+.toggle-vis{padding:0 12px;background:var(--surface2);border:1px solid var(--border2);border-radius:0 6px 6px 0;cursor:pointer;color:var(--muted);display:flex;align-items:center;transition:all .15s}
+.toggle-vis:hover{color:var(--text);border-color:var(--accent)}
+.toggle-vis svg{width:14px;height:14px;stroke:currentColor;fill:none}
+.btn-execute{display:inline-flex;align-items:center;gap:8px;padding:10px 20px;border-radius:8px;font-family:var(--mono);font-size:12px;font-weight:500;cursor:pointer;border:1px solid var(--purple);background:var(--purple-dim);color:var(--purple);transition:all .15s}
+.btn-execute:hover{background:var(--purple);color:#fff}
+.btn-execute:disabled{opacity:.4;cursor:not-allowed;pointer-events:none}
+.btn-execute svg{width:14px;height:14px;stroke:currentColor;fill:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinner{display:inline-block;animation:spin .8s linear infinite}
+.response-panel{display:none;margin-top:20px;border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.response-panel.visible{display:block}
+.response-header{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--surface2);border-bottom:1px solid var(--border)}
+.response-status{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;font-weight:500}
+.response-status .dot{width:7px;height:7px;border-radius:50%}
+.response-status.ok .dot{background:var(--green)}.response-status.ok{color:var(--green)}
+.response-status.err .dot{background:var(--red)}.response-status.err{color:var(--red)}
+.response-time{font-family:var(--mono);font-size:10px;color:var(--muted)}
+.response-body{margin:0;padding:14px 16px;font-family:var(--mono);font-size:11.5px;line-height:1.7;color:var(--text);overflow:auto;max-height:300px;white-space:pre-wrap;word-break:break-all}
+.json-key{color:var(--accent)}.json-str{color:var(--green)}.json-num{color:var(--amber)}.json-bool{color:var(--purple)}.json-null{color:var(--muted)}
+.cors-notice{margin-top:12px;padding:12px 14px;background:var(--amber-dim);border:1px solid rgba(245,166,35,.3);border-radius:8px;font-size:12px;color:var(--amber);display:none}
+.cors-notice.visible{display:block}
+.cors-notice strong{font-weight:500;display:block;margin-bottom:3px}
+
+/* Modal */
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center}
+.modal-bg.open{display:flex}
+.modal-box{background:var(--surface);border:1px solid var(--border2);border-radius:12px;padding:24px;width:380px;max-width:90vw}
+.modal-box h3{font-size:14px;font-weight:500;color:var(--text);margin-bottom:4px}
+.modal-box p{font-size:12px;color:var(--muted);margin-bottom:18px}
+.modal-field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+.modal-lbl{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.modal-inp{background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:9px 12px;font-family:var(--mono);font-size:12px;color:var(--text);width:100%}
+.modal-inp:focus{outline:none;border-color:var(--accent)}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
+.modal-btn{padding:8px 18px;border-radius:7px;font-family:var(--mono);font-size:12px;font-weight:500;cursor:pointer;border:1px solid;transition:all .15s}
+.modal-btn.ok{background:var(--accent);border-color:var(--accent);color:#fff}
+.modal-btn.ok:hover{background:#6ba0f9}
+.modal-btn.cancel{background:transparent;border-color:var(--border2);color:var(--muted)}
+.modal-btn.cancel:hover{border-color:var(--text);color:var(--text)}
+
+/* Toast */
+.toast{position:fixed;bottom:24px;right:24px;background:var(--surface2);border:1px solid var(--green);color:var(--green);font-family:var(--mono);font-size:12px;padding:10px 18px;border-radius:var(--radius);display:flex;align-items:center;gap:8px;transform:translateY(80px);opacity:0;transition:all .25s cubic-bezier(.34,1.56,.64,1);z-index:100}
+.toast.show{transform:translateY(0);opacity:1}
+.toast svg{width:14px;height:14px;stroke:currentColor;fill:none}
 </style>
 </head>
 <body>
-
 <div class="app-shell">
 
-  <!-- ── Sidebar ── -->
   <aside class="sidebar">
     <div class="sidebar-logo">
       <div class="wordmark">Acoustic</div>
       <div class="tagline">Mutation Builder</div>
     </div>
-
     <nav class="step-nav">
       <div class="step-item active" data-panel="upload" onclick="goTo('upload')">
         <div class="step-num" id="num-upload">1</div>
-        <div class="step-label">
-          <strong>Upload Schema</strong>
-          <span>Import .xlsx mapping file</span>
-        </div>
+        <div class="step-label"><strong>Upload Schema</strong><span>Import .xlsx mapping file</span></div>
       </div>
       <div class="step-item" data-panel="configure" onclick="goTo('configure')">
         <div class="step-num" id="num-configure">2</div>
-        <div class="step-label">
-          <strong>Configure</strong>
-          <span>Set dataset ID &amp; options</span>
-        </div>
+        <div class="step-label"><strong>Configure</strong><span>Set dataset ID &amp; options</span></div>
       </div>
       <div class="step-item" data-panel="preview" onclick="goTo('preview')">
         <div class="step-num" id="num-preview">3</div>
-        <div class="step-label">
-          <strong>Preview Attributes</strong>
-          <span>Review mapped fields</span>
-        </div>
+        <div class="step-label"><strong>Preview Attributes</strong><span>Review mapped fields</span></div>
       </div>
       <div class="step-item" data-panel="output" onclick="goTo('output')">
         <div class="step-num" id="num-output">4</div>
-        <div class="step-label">
-          <strong>Generate &amp; Export</strong>
-          <span>Copy or download mutation</span>
-        </div>
+        <div class="step-label"><strong>Generate &amp; Export</strong><span>Copy or download mutation</span></div>
       </div>
     </nav>
-
-    <div class="sidebar-footer">
-      Acoustic Connect API<br>
-      <span>updateDataSet mutation</span>
-    </div>
+    <div class="sidebar-footer">Acoustic Connect API<br><span>updateDataSet mutation</span></div>
   </aside>
 
-  <!-- ── Main ── -->
   <div class="main">
-
-    <!-- Topbar -->
     <div class="topbar">
       <div class="topbar-title" id="topbar-title">Step 1 — Upload Schema</div>
       <div class="stat-pills">
@@ -1444,10 +285,9 @@ function showHeaderPreview(rows, hasHeader) {
       </div>
     </div>
 
-    <!-- Content -->
     <div class="content">
 
-      <!-- ── Panel 1: Upload ── -->
+      <!-- Step 1 -->
       <div class="panel active" id="panel-upload">
         <div class="panel-heading">
           <h2>Upload your attribute schema</h2>
@@ -1455,10 +295,10 @@ function showHeaderPreview(rows, hasHeader) {
         </div>
 
         <div class="dropzone" id="dropzone"
-          ondragover="event.preventDefault(); this.classList.add('drag-over')"
+          ondragover="event.preventDefault();this.classList.add('drag-over')"
           ondragleave="this.classList.remove('drag-over')"
-          ondrop="handleDrop(event)">
-          <input type="file" accept=".xlsx,.xls" onchange="handleFile(this.files[0])" id="fileInput">
+          ondrop="onDrop(event)">
+          <input type="file" id="fileInput" accept=".xlsx,.xls" onchange="onFileChange(event)">
           <div class="drop-icon">
             <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/></svg>
           </div>
@@ -1467,37 +307,29 @@ function showHeaderPreview(rows, hasHeader) {
           <span class="drop-accepted">.xlsx · .xls</span>
         </div>
 
-        <!-- Header row toggle -->
-        <div class="header-toggle" id="header-toggle">
+        <div class="header-toggle">
           <div class="header-toggle-label">
             File has a header row
             <span>Toggle off if row 1 is already attribute data, not column labels</span>
           </div>
           <label class="toggle-switch">
-            <input type="checkbox" id="has-header" checked onchange="onHeaderToggleChange()">
+            <input type="checkbox" id="has-header" checked onchange="onHeaderChange()">
             <div class="toggle-track"></div>
           </label>
         </div>
-        <div class="header-row-preview" id="header-row-preview"></div>
+        <div class="header-preview" id="header-preview"></div>
 
-        <div class="file-loaded" id="file-loaded" style="display:none">
+        <div class="file-loaded" id="file-loaded">
           <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-          <span class="file-loaded-name" id="file-loaded-name">—</span>
+          <span class="file-loaded-name" id="file-loaded-name"></span>
           <span class="file-loaded-count" id="file-loaded-count"></span>
           <button class="btn-reupload" onclick="document.getElementById('fileInput').click()">Replace</button>
         </div>
 
         <hr class="section-sep">
-
         <div class="section-title">Expected format</div>
-
         <table class="attr-table" style="max-width:420px">
-          <thead>
-            <tr>
-              <th>Column A — name</th>
-              <th>Column B — type</th>
-            </tr>
-          </thead>
+          <thead><tr><th>Column A — name</th><th>Column B — type</th></tr></thead>
           <tbody>
             <tr><td class="col-name">FIRST_NAME</td><td><span class="type-badge TEXT">TEXT</span></td></tr>
             <tr><td class="col-name">PLAN_ASSETS</td><td><span class="type-badge NUMBER">NUMBER</span></td></tr>
@@ -1507,97 +339,53 @@ function showHeaderPreview(rows, hasHeader) {
         </table>
 
         <div class="btn-row">
-          <button class="btn btn-primary" onclick="goTo('configure')" id="btn-next-1" style="opacity:.4;pointer-events:none">
+          <button class="btn btn-primary" id="btn-next-1" onclick="goTo('configure')" style="opacity:.4;pointer-events:none">
             <svg viewBox="0 0 24 24" stroke-width="2"><path d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/></svg>
             Continue to Configure
           </button>
         </div>
       </div>
 
-      <!-- ── Panel 2: Configure ── -->
+      <!-- Step 2 -->
       <div class="panel" id="panel-configure">
         <div class="panel-heading">
           <h2>Configure mutation settings</h2>
           <p>Set the target dataset and adjust type formatting options.</p>
         </div>
-
         <div class="section-title">Dataset</div>
-        <div class="config-grid">
+        <div style="margin-bottom:24px">
           <div class="field-group">
             <label class="field-label">Dataset ID <span style="color:var(--red)">*</span></label>
-            <input class="field-input" id="input-dsid" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-              value="32348c2f-d27c-47f2-8e03-610c01b6cf94">
+            <input class="field-input" id="input-dsid" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" value="32348c2f-d27c-47f2-8e03-610c01b6cf94">
             <span style="font-size:11px;color:var(--muted)">The unique identifier for your Acoustic Connect dataset.</span>
           </div>
         </div>
-
         <hr class="section-sep">
         <div class="section-title">Type options</div>
-
-        <div class="config-grid">
+        <div style="margin-bottom:24px">
           <div class="field-group">
             <label class="field-label">NUMBER decimal precision</label>
             <input class="field-input" id="input-precision" type="number" min="0" max="10" value="2" style="max-width:100px">
             <span style="font-size:11px;color:var(--muted)">Applied to all NUMBER fields as <code style="font-family:var(--mono);color:var(--purple)">decimalPrecision</code>.</span>
           </div>
         </div>
-
-        <hr class="section-sep">
-        <div class="section-title">Type mapping reference</div>
-
-        <table class="attr-table" style="max-width:520px">
-          <thead>
-            <tr>
-              <th>Spreadsheet value</th>
-              <th>GraphQL type</th>
-              <th>Format in mutation</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td class="col-name">Text, TEXT, String</td>
-              <td><span class="type-badge TEXT">TEXT</span></td>
-              <td style="font-family:var(--mono);font-size:11px;color:var(--green)">type: "TEXT"</td>
-            </tr>
-            <tr>
-              <td class="col-name">True/False, Boolean</td>
-              <td><span class="type-badge BOOLEAN">BOOLEAN</span></td>
-              <td style="font-family:var(--mono);font-size:11px;color:var(--green)">type: BOOLEAN</td>
-            </tr>
-            <tr>
-              <td class="col-name">Number, NUMBER</td>
-              <td><span class="type-badge NUMBER">NUMBER</span></td>
-              <td style="font-family:var(--mono);font-size:11px;color:var(--green)">type: NUMBER, decimalPrecision: 2</td>
-            </tr>
-            <tr>
-              <td class="col-name">Date, DATE</td>
-              <td><span class="type-badge DATE">DATE</span></td>
-              <td style="font-family:var(--mono);font-size:11px;color:var(--green)">type: DATE</td>
-            </tr>
-          </tbody>
-        </table>
-
         <div class="btn-row">
           <button class="btn btn-secondary" onclick="goTo('upload')">
-            <svg viewBox="0 0 24 24" stroke-width="2"><path d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/></svg>
-            Back
+            <svg viewBox="0 0 24 24" stroke-width="2"><path d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/></svg>Back
           </button>
           <button class="btn btn-primary" onclick="goTo('preview')">
-            <svg viewBox="0 0 24 24" stroke-width="2"><path d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/></svg>
-            Preview Attributes
+            <svg viewBox="0 0 24 24" stroke-width="2"><path d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/></svg>Preview Attributes
           </button>
         </div>
       </div>
 
-      <!-- ── Panel 3: Preview ── -->
+      <!-- Step 3 -->
       <div class="panel" id="panel-preview">
         <div class="panel-heading">
           <h2>Preview attribute mapping</h2>
-          <p>Review all attributes and their resolved types before generating the mutation.</p>
+          <p>Review all attributes and their resolved types before generating.</p>
         </div>
-
         <div class="type-legend" id="type-legend"></div>
-
         <div class="attr-toolbar">
           <input class="search-input" id="search-input" type="text" placeholder="Search by name…" oninput="renderTable()">
           <button class="filter-btn active-ALL" id="filter-ALL" onclick="setFilter('ALL')">All</button>
@@ -1606,44 +394,33 @@ function showHeaderPreview(rows, hasHeader) {
           <button class="filter-btn" id="filter-NUMBER" onclick="setFilter('NUMBER')">NUMBER</button>
           <button class="filter-btn" id="filter-DATE" onclick="setFilter('DATE')">DATE</button>
         </div>
-
         <div class="attr-table-wrap">
           <div class="attr-scroll">
-            <table class="attr-table" id="attr-table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Attribute name</th>
-                  <th>Raw value</th>
-                  <th>Mapped type</th>
-                </tr>
-              </thead>
+            <table class="attr-table">
+              <thead><tr><th>#</th><th>Attribute name</th><th>Raw value</th><th>Type</th></tr></thead>
               <tbody id="attr-tbody"></tbody>
             </table>
           </div>
           <div class="attr-table-footer" id="attr-footer">—</div>
         </div>
-
         <div class="btn-row">
           <button class="btn btn-secondary" onclick="goTo('configure')">
-            <svg viewBox="0 0 24 24" stroke-width="2"><path d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/></svg>
-            Back
+            <svg viewBox="0 0 24 24" stroke-width="2"><path d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/></svg>Back
           </button>
           <button class="btn btn-primary" onclick="buildAndGoOutput()">
-            <svg viewBox="0 0 24 24" stroke-width="2"><path d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5"/></svg>
-            Generate Mutation
+            <svg viewBox="0 0 24 24" stroke-width="2"><path d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5"/></svg>Generate Mutation
           </button>
         </div>
       </div>
 
-      <!-- ── Panel 4: Output ── -->
+      <!-- Step 4 -->
       <div class="panel" id="panel-output">
         <div class="panel-heading">
           <h2>Generated GraphQL mutation</h2>
           <p>Copy, download, or execute directly against the Acoustic Connect API.</p>
         </div>
 
-        <div class="output-meta" id="output-meta">
+        <div class="output-meta">
           <div class="meta-card"><div class="meta-label">Total</div><div class="meta-value" id="meta-total">—</div></div>
           <div class="meta-card blue"><div class="meta-label">TEXT</div><div class="meta-value" id="meta-text">—</div></div>
           <div class="meta-card green"><div class="meta-label">BOOLEAN</div><div class="meta-value" id="meta-bool">—</div></div>
@@ -1654,74 +431,58 @@ function showHeaderPreview(rows, hasHeader) {
           <span>mutation output</span>
           <span class="copy-status" id="copy-status">✓ Copied to clipboard</span>
         </div>
-
         <div class="code-block">
           <div class="code-header">
             <span class="code-lang">graphql</span>
             <div class="code-actions">
               <button class="btn btn-secondary" style="padding:5px 12px;font-size:11px" onclick="copyMutation()">
-                <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184"/></svg>
-                Copy
+                <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184"/></svg>Copy
               </button>
               <button class="btn btn-success" style="padding:5px 12px;font-size:11px" onclick="downloadMutation()">
-                <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
-                Download .graphql
+                <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>Download .graphql
               </button>
             </div>
           </div>
           <pre class="code-pre" id="code-output"></pre>
         </div>
 
-        <!-- ── API Execution ── -->
         <hr class="section-sep">
 
-        <div class="api-config" id="api-config">
+        <div class="api-config">
           <div class="api-config-header" onclick="toggleApiConfig()">
             <div class="api-config-header-left">
               <svg style="width:16px;height:16px;stroke:var(--purple);fill:none;stroke-width:1.5" viewBox="0 0 24 24"><path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg>
               <div>
                 <div class="api-config-title">Execute against API</div>
-                <div class="api-config-sub">Configure endpoint &amp; credentials to run the mutation</div>
+                <div class="api-config-sub">Configure endpoint &amp; credentials</div>
               </div>
             </div>
-            <div class="api-config-toggle" id="api-toggle-icon">
+            <div class="api-config-toggle" id="api-toggle">
               <svg viewBox="0 0 24 24" stroke-width="2.5"><path d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
             </div>
           </div>
-
-          <div class="api-config-body" id="api-config-body">
-
-            <!-- Saved credentials bar -->
+          <div class="api-config-body" id="api-body">
             <div class="cred-bar">
-              <span class="cred-bar-label">Saved credentials</span>
-              <select class="cred-select" id="cred-select" onchange="loadCredential()">
+              <span class="cred-bar-label">Saved</span>
+              <select class="cred-select" id="cred-select" onchange="loadCred()">
                 <option value="">— Select saved credential —</option>
               </select>
-              <button class="cred-btn save" onclick="openSaveModal()" title="Save current credentials">
-                <svg viewBox="0 0 24 24" stroke-width="2"><path d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z"/></svg>
-                Save
+              <button class="cred-btn save" onclick="openSaveModal()">
+                <svg viewBox="0 0 24 24" stroke-width="2"><path d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z"/></svg>Save
               </button>
-              <button class="cred-btn delete" id="cred-delete-btn" onclick="deleteCredential()" title="Delete selected" disabled>
-                <svg viewBox="0 0 24 24" stroke-width="2"><path d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>
-                Delete
-              </button>
-              <button class="cred-btn postman" onclick="openPostmanModal()" title="Export to Postman collection">
-                <svg viewBox="0 0 24 24" stroke-width="2"><path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
-                Postman
+              <button class="cred-btn del" id="cred-del" onclick="deleteCred()" disabled>
+                <svg viewBox="0 0 24 24" stroke-width="2"><path d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>Delete
               </button>
             </div>
-
-            <div style="padding:16px">
+            <div class="api-inner">
               <div class="api-fields">
                 <div class="api-field">
                   <label class="api-label">GraphQL Endpoint URL</label>
-                  <input class="api-input" id="api-endpoint" type="url"
-                    placeholder="https://your-endpoint.acoustic.com/audience/v1/graphql"
-                    value="">
+                  <input class="api-input" id="api-endpoint" type="url" placeholder="https://your-endpoint.acoustic.com/audience/v1/graphql" oninput="checkReady()">
                 </div>
                 <div class="api-field">
                   <label class="api-label">Environment</label>
-                  <select class="api-select" id="api-env" onchange="prefillEndpoint()">
+                  <select class="api-select" id="api-env" onchange="pickEnv()">
                     <option value="">Custom</option>
                     <option value="https://api-us-2.acoustic.com/audience/v1/graphql">US 2</option>
                     <option value="https://api-us-4.acoustic.com/audience/v1/graphql">US 4</option>
@@ -1730,83 +491,91 @@ function showHeaderPreview(rows, hasHeader) {
                   </select>
                 </div>
               </div>
-
               <div class="api-auth-row">
                 <div class="api-field">
                   <label class="api-label">Auth header</label>
-                  <select class="api-select" id="api-auth-type">
+                  <select class="api-select" id="api-auth">
                     <option value="x-api-key" selected>x-api-key</option>
                     <option value="Bearer">Authorization: Bearer</option>
                     <option value="Basic">Authorization: Basic</option>
                   </select>
                 </div>
                 <div class="api-field">
-                  <label class="api-label">
-                    API Key / Token
-                    <span class="api-label-badge">sensitive</span>
-                  </label>
-                  <div class="key-visibility">
-                    <input class="api-input key-input" id="api-key" type="password" placeholder="Paste your API key or token">
-                    <button class="toggle-visibility" onclick="toggleKeyVisibility()" title="Show/hide key">
+                  <label class="api-label">API Key / Token <span class="api-label-badge">sensitive</span></label>
+                  <div class="key-row">
+                    <input class="api-input" id="api-key" type="password" placeholder="Paste your API key or token" oninput="checkReady()">
+                    <button class="toggle-vis" onclick="toggleKeyVis()">
                       <svg id="eye-icon" viewBox="0 0 24 24" stroke-width="1.5"><path d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"/><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                     </button>
                   </div>
                 </div>
               </div>
-
-              <p class="api-hint">
-                Credentials are saved to your browser's local storage — they stay on this device only and are never transmitted except directly to your endpoint.
-              </p>
+              <p class="api-hint">Credentials saved to browser localStorage — never transmitted except to your endpoint.</p>
             </div>
           </div>
         </div>
 
         <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
-          <button class="btn-execute" id="execute-btn" onclick="executeApi()" disabled>
-            <svg viewBox="0 0 24 24" stroke-width="2"><path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg>
-            Execute Mutation
+          <button class="btn-execute" id="exec-btn" onclick="runApi()" disabled>
+            <svg viewBox="0 0 24 24" stroke-width="2"><path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg>Execute Mutation
           </button>
-          <span style="font-size:11px;color:var(--muted);font-family:var(--mono)" id="execute-hint">Enter endpoint &amp; API key to enable</span>
+          <span style="font-size:11px;color:var(--muted);font-family:var(--mono)" id="exec-hint">Enter endpoint &amp; API key to enable</span>
         </div>
 
-        <!-- CORS warning -->
         <div class="cors-notice" id="cors-notice">
           <strong>CORS error — direct browser execution blocked</strong>
-          The API endpoint rejected the request from this browser origin. This is common when running from a local file or a different domain. Options: host this tool on the same domain as your API, use a proxy, or copy the mutation and execute it via Postman or your backend.
+          The API rejected the request from this origin. Try hosting this tool on the same domain, or execute via your API client.
         </div>
 
-        <!-- Response -->
         <div class="response-panel" id="response-panel">
           <div class="response-header">
-            <div class="response-header-left">
-              <div class="response-status" id="response-status">
-                <div class="dot"></div>
-                <span id="response-status-text">—</span>
-              </div>
-              <span class="response-time" id="response-time"></span>
+            <div style="display:flex;align-items:center;gap:10px">
+              <div class="response-status" id="resp-status"><div class="dot"></div><span id="resp-text">—</span></div>
+              <span class="response-time" id="resp-time"></span>
             </div>
-            <button class="btn btn-secondary" style="padding:4px 10px;font-size:11px" onclick="clearResponse()">Clear</button>
+            <button class="btn btn-secondary" style="padding:4px 10px;font-size:11px" onclick="clearResp()">Clear</button>
           </div>
-          <pre class="response-body" id="response-body"></pre>
+          <pre class="response-body" id="resp-body"></pre>
         </div>
 
         <hr class="section-sep">
-
         <div class="btn-row">
           <button class="btn btn-secondary" onclick="goTo('preview')">
-            <svg viewBox="0 0 24 24" stroke-width="2"><path d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/></svg>
-            Back to Preview
+            <svg viewBox="0 0 24 24" stroke-width="2"><path d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/></svg>Back to Preview
           </button>
-          <button class="btn btn-secondary" onclick="reset()">
-            <svg viewBox="0 0 24 24" stroke-width="2"><path d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
-            Start over
+          <button class="btn btn-secondary" onclick="resetAll()">
+            <svg viewBox="0 0 24 24" stroke-width="2"><path d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>Start over
           </button>
         </div>
       </div>
 
-    </div><!-- /content -->
-  </div><!-- /main -->
-</div><!-- /app-shell -->
+    </div>
+  </div>
+</div>
+
+<!-- Save Modal -->
+<div class="modal-bg" id="save-modal">
+  <div class="modal-box">
+    <h3>Save credentials</h3>
+    <p>Give this endpoint + API key combination a name.</p>
+    <div class="modal-field">
+      <label class="modal-lbl">Credential name</label>
+      <input class="modal-inp" id="cred-name" type="text" placeholder="e.g. Acoustic US2 Production" maxlength="60">
+    </div>
+    <div class="modal-field">
+      <label class="modal-lbl">Endpoint</label>
+      <input class="modal-inp" id="cred-ep-preview" type="text" readonly style="opacity:.6">
+    </div>
+    <div class="modal-field">
+      <label class="modal-lbl">Auth type</label>
+      <input class="modal-inp" id="cred-auth-preview" type="text" readonly style="opacity:.6">
+    </div>
+    <div class="modal-actions">
+      <button class="modal-btn cancel" onclick="closeSaveModal()">Cancel</button>
+      <button class="modal-btn ok" onclick="saveCred()">Save</button>
+    </div>
+  </div>
+</div>
 
 <!-- Toast -->
 <div class="toast" id="toast">
@@ -1815,263 +584,387 @@ function showHeaderPreview(rows, hasHeader) {
 </div>
 
 <script>
-const TYPE_MAP = {
-  'TEXT':true,'STRING':true,'text':true,'string':true,
-  'TRUE/FALSE':true,'BOOLEAN':true,'boolean':true,
-  'NUMBER':true,'number':true,
-  'DATE':true,'date':true,
-};
+// ── State ──
+var attrs      = [];
+var filterType = 'ALL';
+var mutation   = '';
+var fileName   = '';
+var lastBuf    = null;
+
+// ── Utils ──
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 
 function resolveType(raw) {
-  const u = (raw||'').trim().toUpperCase();
-  if (u==='TEXT'||u==='STRING') return 'TEXT';
+  var u = (raw||'').trim().toUpperCase();
+  if (u==='TEXT'||u==='STRING')        return 'TEXT';
   if (u==='TRUE/FALSE'||u==='BOOLEAN') return 'BOOLEAN';
-  if (u==='NUMBER') return 'NUMBER';
-  if (u==='DATE') return 'DATE';
+  if (u==='NUMBER')                    return 'NUMBER';
+  if (u==='DATE')                      return 'DATE';
   return 'TEXT';
 }
 
-let attrs = [];
-let filterType = 'ALL';
-let mutation = '';
+function toast(msg) {
+  var t = document.getElementById('toast');
+  document.getElementById('toast-msg').textContent = msg;
+  t.classList.add('show');
+  setTimeout(function(){ t.classList.remove('show'); }, 2800);
+}
 
-const panels = ['upload','configure','preview','output'];
-const panelTitles = {
-  upload: 'Step 1 — Upload Schema',
-  configure: 'Step 2 — Configure',
-  preview: 'Step 3 — Preview Attributes',
-  output: 'Step 4 — Generate & Export',
-};
+// ── Navigation ──
+var panels = ['upload','configure','preview','output'];
+var titles  = { upload:'Step 1 — Upload Schema', configure:'Step 2 — Configure', preview:'Step 3 — Preview Attributes', output:'Step 4 — Generate & Export' };
 
 function goTo(name) {
-  panels.forEach(p => {
+  panels.forEach(function(p) {
     document.getElementById('panel-'+p).classList.toggle('active', p===name);
-    document.querySelector(`[data-panel="${p}"]`).classList.toggle('active', p===name);
+    document.querySelector('[data-panel="'+p+'"]').classList.toggle('active', p===name);
   });
-  document.getElementById('topbar-title').textContent = panelTitles[name];
+  document.getElementById('topbar-title').textContent = titles[name];
 }
 
 function markDone(name) {
-  const el = document.querySelector(`[data-panel="${name}"]`);
-  el.classList.add('done');
-  el.classList.remove('active');
+  var el = document.querySelector('[data-panel="'+name+'"]');
+  el.classList.add('done'); el.classList.remove('active');
   document.getElementById('num-'+name).textContent = '✓';
 }
 
-function handleDrop(e) {
+// ── File load ──
+function onDrop(e) {
   e.preventDefault();
   document.getElementById('dropzone').classList.remove('drag-over');
-  const file = e.dataTransfer.files[0];
-  if (file) handleFile(file);
+  var f = e.dataTransfer.files[0];
+  if (f) loadFile(f);
 }
 
-function handleFile(file) {
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = e => {
-    const wb = XLSX.read(e.target.result, { type: 'array' });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
-    attrs = rows.slice(1)
-      .filter(r => r[0])
-      .map(r => ({
-        name: String(r[0]).trim(),
-        raw:  String(r[1]||'').trim(),
-        type: resolveType(String(r[1]||'')),
-      }));
-
-    document.getElementById('file-loaded').style.display = 'flex';
-    document.getElementById('file-loaded-name').textContent = file.name;
-    document.getElementById('file-loaded').style.display = 'flex';
-    document.getElementById('file-loaded-name').textContent = fileName;
-    document.getElementById('file-loaded-count').textContent = attrs.length + ' attributes found';
-    document.getElementById('pill-file').textContent = fileName;
-    document.getElementById('pill-file').classList.add('has-data');
-    document.getElementById('pill-total').textContent = attrs.length + ' attributes';
-    document.getElementById('pill-total').classList.add('has-data');
-
-    const btn = document.getElementById('btn-next-1');
-    btn.style.opacity = '1';
-    btn.style.pointerEvents = 'auto';
-
-    markDone('upload');
-    renderLegend();
-    renderTable();
-    showToast('File loaded — ' + attrs.length + ' attributes');
+function onFileChange(e) {
+  var f = e.target.files[0];
+  if (f) loadFile(f);
 }
 
+function loadFile(file) {
+  fileName = file.name;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    lastBuf = e.target.result;
+    parseXLSX(lastBuf);
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function parseXLSX(buf) {
+  var wb   = XLSX.read(buf, { type: 'array' });
+  var ws   = wb.Sheets[wb.SheetNames[0]];
+  var rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+  var hasH = document.getElementById('has-header').checked;
+  showPreview(rows, hasH);
+  var data = hasH ? rows.slice(1) : rows;
+  attrs = data.filter(function(r){ return r[0]; }).map(function(r){
+    return { name: String(r[0]).trim(), raw: String(r[1]||'').trim(), type: resolveType(String(r[1]||'')) };
+  });
+  renderFileLoaded();
+}
+
+function renderFileLoaded() {
+  document.getElementById('file-loaded').style.display = 'flex';
+  document.getElementById('file-loaded-name').textContent  = fileName;
+  document.getElementById('file-loaded-count').textContent = attrs.length + ' attributes found';
+  document.getElementById('pill-file').textContent = fileName;
+  document.getElementById('pill-file').classList.add('has-data');
+  document.getElementById('pill-total').textContent = attrs.length + ' attributes';
+  document.getElementById('pill-total').classList.add('has-data');
+  var btn = document.getElementById('btn-next-1');
+  btn.style.opacity = '1'; btn.style.pointerEvents = 'auto';
+  markDone('upload');
+  renderLegend();
+  renderTable();
+  toast('File loaded — ' + attrs.length + ' attributes');
+}
+
+function showPreview(rows, hasH) {
+  var el = document.getElementById('header-preview');
+  if (!rows || !rows.length) { el.classList.remove('visible'); return; }
+  var r0 = rows[0]||[], r1 = rows[1]||[];
+  var n0 = String(r0[0]||'').trim()||'(empty)', t0 = String(r0[1]||'').trim()||'(empty)';
+  var n1 = String(r1[0]||'').trim()||'(empty)', t1 = String(r1[1]||'').trim()||'(empty)';
+  el.innerHTML = hasH
+    ? '<span class="skip">Row 1 skipped (header): '+esc(n0)+' | '+esc(t0)+'</span><br><span class="data">Row 2 first data: '+esc(n1)+' | '+esc(t1)+'</span>'
+    : '<span class="data">Row 1 first data: '+esc(n0)+' | '+esc(t0)+'</span><br><span class="data">Row 2: '+esc(n1)+' | '+esc(t1)+'</span>';
+  el.classList.add('visible');
+}
+
+function onHeaderChange() {
+  if (lastBuf) parseXLSX(lastBuf);
+}
+
+// ── Preview ──
 function renderLegend() {
-  const counts = {};
-  attrs.forEach(a => counts[a.type] = (counts[a.type]||0)+1);
-  const el = document.getElementById('type-legend');
-  el.innerHTML = ['TEXT','BOOLEAN','NUMBER','DATE'].map(t =>
-    `<span class="type-badge ${t}">${t} <strong style="opacity:.7">${counts[t]||0}</strong></span>`
-  ).join('');
+  var counts = {};
+  attrs.forEach(function(a){ counts[a.type] = (counts[a.type]||0)+1; });
+  document.getElementById('type-legend').innerHTML =
+    ['TEXT','BOOLEAN','NUMBER','DATE'].map(function(t){
+      return '<span class="type-badge '+t+'">'+t+' <strong style="opacity:.7">'+(counts[t]||0)+'</strong></span>';
+    }).join('');
 }
 
 function setFilter(f) {
   filterType = f;
-  ['ALL','TEXT','BOOLEAN','NUMBER','DATE'].forEach(t => {
-    const btn = document.getElementById('filter-'+t);
-    btn.className = 'filter-btn' + (t===f ? ' active-'+f : '');
+  ['ALL','TEXT','BOOLEAN','NUMBER','DATE'].forEach(function(t){
+    document.getElementById('filter-'+t).className = 'filter-btn'+(t===f?' active-'+f:'');
   });
   renderTable();
 }
 
 function renderTable() {
-  const q = (document.getElementById('search-input').value||'').toLowerCase();
-  const filtered = attrs.filter(a =>
-    (filterType==='ALL' || a.type===filterType) &&
-    a.name.toLowerCase().includes(q)
-  );
-
-  const TYPE_BADGE = { TEXT:'TEXT', BOOLEAN:'BOOLEAN', NUMBER:'NUMBER', DATE:'DATE' };
-
-  const tbody = document.getElementById('attr-tbody');
-  tbody.innerHTML = filtered.map((a,i) => `
-    <tr>
-      <td class="col-num">${i+1}</td>
-      <td class="col-name">${escHtml(a.name)}</td>
-      <td style="font-family:var(--mono);font-size:11px;color:var(--muted)">${escHtml(a.raw)}</td>
-      <td><span class="type-badge ${a.type}">${TYPE_BADGE[a.type]}</span></td>
-    </tr>
-  `).join('');
-
-  document.getElementById('attr-footer').textContent =
-    `Showing ${filtered.length} of ${attrs.length} attributes`;
-}
-
-function escHtml(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-function buildMutation() {
-  const dsid = document.getElementById('input-dsid').value.trim();
-  const prec = parseInt(document.getElementById('input-precision').value, 10);
-
-  const lines = attrs.map(a => {
-    const n = a.name.replace(/\\/g,'\\\\').replace(/"/g,'\\"');
-    if (a.type==='TEXT')    return `          { name: "${n}", type: "TEXT" }`;
-    if (a.type==='BOOLEAN') return `          { name: "${n}", type: BOOLEAN }`;
-    if (a.type==='DATE')    return `          { name: "${n}", type: DATE }`;
-    if (a.type==='NUMBER')  return `          { name: "${n}", type: NUMBER, decimalPrecision: ${prec} }`;
-    return `          { name: "${n}", type: "TEXT" }`;
+  var q = (document.getElementById('search-input').value||'').toLowerCase();
+  var filtered = attrs.filter(function(a){
+    return (filterType==='ALL'||a.type===filterType) && a.name.toLowerCase().indexOf(q)>=0;
   });
+  document.getElementById('attr-tbody').innerHTML = filtered.map(function(a,i){
+    return '<tr><td class="col-num">'+(i+1)+'</td><td class="col-name">'+esc(a.name)+'</td><td style="font-family:var(--mono);font-size:11px;color:var(--muted)">'+esc(a.raw)+'</td><td><span class="type-badge '+a.type+'">'+a.type+'</span></td></tr>';
+  }).join('');
+  document.getElementById('attr-footer').textContent = 'Showing '+filtered.length+' of '+attrs.length+' attributes';
+}
 
-  mutation = `mutation {\n  updateDataSet(\n    where: { dataSetId: "${dsid}" }\n    to: {\n      attributes: {\n        create: [\n${lines.join('\n')}\n        ]\n      }\n    }\n  ) {\n    dataSetId\n  }\n}`;
-  return mutation;
+// ── Build ──
+function buildMutation() {
+  var dsid = document.getElementById('input-dsid').value.trim();
+  var prec = parseInt(document.getElementById('input-precision').value, 10);
+  var lines = attrs.map(function(a) {
+    var n = a.name.replace(/\\/g,'\\\\').replace(/"/g,'\\"');
+    if (a.type==='TEXT')    return '          { name: "'+n+'", type: "TEXT" }';
+    if (a.type==='BOOLEAN') return '          { name: "'+n+'", type: BOOLEAN }';
+    if (a.type==='DATE')    return '          { name: "'+n+'", type: DATE }';
+    return                         '          { name: "'+n+'", type: NUMBER, decimalPrecision: '+prec+' }';
+  });
+  mutation = 'mutation {\n  updateDataSet(\n    where: { dataSetId: "'+dsid+'" }\n    to: {\n      attributes: {\n        create: [\n'+lines.join('\n')+'\n        ]\n      }\n    }\n  ) {\n    dataSetId\n  }\n}';
 }
 
 function buildAndGoOutput() {
   buildMutation();
-
-  const counts = {};
-  attrs.forEach(a => counts[a.type] = (counts[a.type]||0)+1);
+  var counts = {};
+  attrs.forEach(function(a){ counts[a.type]=(counts[a.type]||0)+1; });
   document.getElementById('meta-total').textContent = attrs.length;
   document.getElementById('meta-text').textContent  = counts['TEXT']||0;
   document.getElementById('meta-bool').textContent  = counts['BOOLEAN']||0;
   document.getElementById('meta-num').textContent   = counts['NUMBER']||0;
-
   document.getElementById('code-output').textContent = mutation;
-
-  markDone('configure');
-  markDone('preview');
+  markDone('configure'); markDone('preview');
   goTo('output');
-  showToast('Mutation generated — ' + attrs.length + ' attributes');
+  checkReady();
+  toast('Mutation generated — '+attrs.length+' attributes');
 }
 
 function copyMutation() {
   if (!mutation) return;
-  navigator.clipboard.writeText(mutation).then(() => {
-    const s = document.getElementById('copy-status');
+  navigator.clipboard.writeText(mutation).then(function(){
+    var s = document.getElementById('copy-status');
     s.classList.add('visible');
-    setTimeout(() => s.classList.remove('visible'), 2500);
-    showToast('Copied to clipboard');
+    setTimeout(function(){ s.classList.remove('visible'); }, 2500);
+    toast('Copied to clipboard');
   });
 }
 
 function downloadMutation() {
   if (!mutation) return;
-  const blob = new Blob([mutation], { type: 'text/plain' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href     = url;
-  a.download = 'acoustic_create_contact_attributes.graphql';
-  a.click();
+  var blob = new Blob([mutation], { type:'text/plain' });
+  var url  = URL.createObjectURL(blob);
+  var a    = document.createElement('a');
+  a.href = url; a.download = 'acoustic_create_contact_attributes.graphql'; a.click();
   URL.revokeObjectURL(url);
-  showToast('Downloaded .graphql file');
+  toast('Downloaded .graphql file');
 }
 
-function reset() {
-  attrs = [];
-  mutation = '';
-  filterType = 'ALL';
-  document.getElementById('fileInput').value = '';
-  document.getElementById('file-loaded').style.display = 'none';
-  document.getElementById('pill-file').textContent = 'No file loaded';
+function resetAll() {
+  attrs=[]; mutation=''; filterType='ALL'; fileName=''; lastBuf=null;
+  document.getElementById('fileInput').value='';
+  document.getElementById('file-loaded').style.display='none';
+  document.getElementById('header-preview').classList.remove('visible');
+  document.getElementById('pill-file').textContent='No file loaded';
   document.getElementById('pill-file').classList.remove('has-data');
-  document.getElementById('pill-total').textContent = '0 attributes';
+  document.getElementById('pill-total').textContent='0 attributes';
   document.getElementById('pill-total').classList.remove('has-data');
-  document.getElementById('btn-next-1').style.opacity = '.4';
-  document.getElementById('btn-next-1').style.pointerEvents = 'none';
-  panels.forEach(p => {
-    const el = document.querySelector(`[data-panel="${p}"]`);
+  var btn = document.getElementById('btn-next-1');
+  btn.style.opacity='.4'; btn.style.pointerEvents='none';
+  panels.forEach(function(p,i){
+    var el = document.querySelector('[data-panel="'+p+'"]');
     el.classList.remove('done','active');
-    document.getElementById('num-'+p).textContent = panels.indexOf(p)+1;
+    document.getElementById('num-'+p).textContent=i+1;
   });
   goTo('upload');
   document.querySelector('[data-panel="upload"]').classList.add('active');
 }
 
-function showToast(msg) {
-  const t = document.getElementById('toast');
-  document.getElementById('toast-msg').textContent = msg;
-  t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 2800);
+// ── API Execute ──
+function toggleApiConfig() {
+  document.getElementById('api-body').classList.toggle('open');
+  document.getElementById('api-toggle').classList.toggle('open');
 }
+
+function pickEnv() {
+  var v = document.getElementById('api-env').value;
+  if (v) document.getElementById('api-endpoint').value = v;
+  checkReady();
+}
+
+function toggleKeyVis() {
+  var inp = document.getElementById('api-key');
+  inp.type = inp.type==='password' ? 'text' : 'password';
+}
+
+function checkReady() {
+  var ep  = document.getElementById('api-endpoint').value.trim();
+  var key = document.getElementById('api-key').value.trim();
+  var btn = document.getElementById('exec-btn');
+  var hint = document.getElementById('exec-hint');
+  var ok  = ep && key && mutation;
+  btn.disabled = !ok;
+  hint.textContent = !mutation ? 'Generate mutation first' : !ep ? 'Enter endpoint URL' : !key ? 'Enter API key' : 'Ready to execute';
+  hint.style.color = ok ? 'var(--green)' : 'var(--muted)';
+}
+
+async function runApi() {
+  var ep   = document.getElementById('api-endpoint').value.trim();
+  var key  = document.getElementById('api-key').value.trim();
+  var auth = document.getElementById('api-auth').value;
+  var btn  = document.getElementById('exec-btn');
+  btn.disabled=true; btn.innerHTML='<span class="spinner">↻</span> Executing…';
+  document.getElementById('cors-notice').classList.remove('visible');
+  document.getElementById('response-panel').classList.remove('visible');
+  var hdrs = { 'Content-Type':'application/json' };
+  if (auth==='x-api-key') hdrs['x-api-key']=key;
+  else hdrs['Authorization']=(auth==='Bearer'?'Bearer ':'')+key;
+  var t0 = Date.now();
+  try {
+    var res  = await fetch(ep, { method:'POST', headers:hdrs, body:JSON.stringify({ query:mutation }) });
+    var ms   = Date.now()-t0;
+    var text = await res.text();
+    var parsed; try { parsed=JSON.parse(text); } catch(e){ parsed=null; }
+    var ok   = res.ok && parsed && !parsed.errors;
+    var st   = document.getElementById('resp-status');
+    st.className = 'response-status '+(ok?'ok':'err');
+    document.getElementById('resp-text').textContent = res.status+' '+res.statusText+(parsed&&parsed.errors?' · GraphQL errors':'');
+    document.getElementById('resp-time').textContent = ms+'ms';
+    document.getElementById('resp-body').innerHTML   = syntaxHL(parsed ? JSON.stringify(parsed,null,2) : text);
+    document.getElementById('response-panel').classList.add('visible');
+    toast(ok ? 'Mutation executed successfully' : 'API returned errors');
+  } catch(err) {
+    document.getElementById('cors-notice').classList.add('visible');
+    toast('Request failed — see CORS notice');
+  } finally {
+    btn.disabled=false;
+    btn.innerHTML='<svg viewBox="0 0 24 24" stroke-width="2"><path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg> Execute Mutation';
+  }
+}
+
+function clearResp() {
+  document.getElementById('response-panel').classList.remove('visible');
+  document.getElementById('cors-notice').classList.remove('visible');
+}
+
+function syntaxHL(json) {
+  return json.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function(m){
+      if (/^"/.test(m)) return /:$/.test(m) ? '<span class="json-key">'+m+'</span>' : '<span class="json-str">'+m+'</span>';
+      if (/true|false/.test(m)) return '<span class="json-bool">'+m+'</span>';
+      if (/null/.test(m))       return '<span class="json-null">'+m+'</span>';
+      return '<span class="json-num">'+m+'</span>';
+    });
+}
+
+// ── Credential Manager ──
+var CKEY = 'acoustic_api_credentials';
+function getCreds() { try { return JSON.parse(localStorage.getItem(CKEY)||'[]'); } catch(e){ return []; } }
+function setCreds(c){ try { localStorage.setItem(CKEY, JSON.stringify(c)); } catch(e){} }
+
+function renderCredSelect() {
+  var creds = getCreds();
+  var sel   = document.getElementById('cred-select');
+  var cur   = sel.value;
+  sel.innerHTML = '<option value="">— Select saved credential —</option>';
+  creds.forEach(function(c,i){
+    var o = document.createElement('option');
+    o.value=i; o.textContent=c.name; sel.appendChild(o);
+  });
+  if (cur!==''&&creds[parseInt(cur)]) sel.value=cur;
+  document.getElementById('cred-del').disabled = sel.value==='';
+}
+
+function loadCred() {
+  var idx = document.getElementById('cred-select').value;
+  document.getElementById('cred-del').disabled = idx==='';
+  if (idx==='') return;
+  var c = getCreds()[parseInt(idx)];
+  if (!c) return;
+  document.getElementById('api-endpoint').value = c.endpoint;
+  document.getElementById('api-key').value       = c.key;
+  var s = document.getElementById('api-auth');
+  for (var i=0;i<s.options.length;i++) if(s.options[i].value===c.authType){ s.selectedIndex=i; break; }
+  checkReady();
+  toast('Loaded: '+c.name);
+}
+
+function openSaveModal() {
+  var ep  = document.getElementById('api-endpoint').value.trim();
+  var key = document.getElementById('api-key').value.trim();
+  if (!ep||!key) { toast('Enter endpoint and key first'); return; }
+  document.getElementById('cred-ep-preview').value   = ep;
+  document.getElementById('cred-auth-preview').value = document.getElementById('api-auth').value;
+  document.getElementById('cred-name').value          = '';
+  document.getElementById('save-modal').classList.add('open');
+  setTimeout(function(){ document.getElementById('cred-name').focus(); }, 80);
+}
+
+function closeSaveModal() { document.getElementById('save-modal').classList.remove('open'); }
+
+function saveCred() {
+  var name = document.getElementById('cred-name').value.trim();
+  if (!name) { document.getElementById('cred-name').focus(); return; }
+  var creds = getCreds();
+  var entry = { name:name, endpoint:document.getElementById('api-endpoint').value.trim(), key:document.getElementById('api-key').value.trim(), authType:document.getElementById('api-auth').value };
+  var i = creds.findIndex(function(c){ return c.name.toLowerCase()===name.toLowerCase(); });
+  if (i>=0) creds[i]=entry; else creds.push(entry);
+  setCreds(creds);
+  renderCredSelect();
+  var ni = getCreds().findIndex(function(c){ return c.name===name; });
+  document.getElementById('cred-select').value=ni;
+  document.getElementById('cred-del').disabled=false;
+  closeSaveModal();
+  toast('Saved: '+name);
+}
+
+function deleteCred() {
+  var idx = document.getElementById('cred-select').value;
+  if (idx==='') return;
+  var creds = getCreds();
+  var name  = creds[parseInt(idx)].name;
+  creds.splice(parseInt(idx),1);
+  setCreds(creds);
+  renderCredSelect();
+  toast('Deleted: '+name);
+}
+
+document.getElementById('save-modal').addEventListener('click', function(e){ if(e.target===this) closeSaveModal(); });
+document.getElementById('cred-name').addEventListener('keydown', function(e){ if(e.key==='Enter') saveCred(); });
+
+// ── Auto-load from Schema Validator ──
+(function(){
+  try {
+    var raw = sessionStorage.getItem('acoustic_schema_transfer');
+    if (!raw) return;
+    sessionStorage.removeItem('acoustic_schema_transfer');
+    var payload = JSON.parse(raw);
+    if (!payload.attrs||!payload.attrs.length) return;
+    fileName = payload.fileName||'Imported schema';
+    attrs = payload.attrs.map(function(a){ return { name:a.name, raw:a.rawType||a.raw||'', type:a.type }; });
+    renderFileLoaded();
+    goTo('configure');
+  } catch(e){}
+})();
+
+// ── Init ──
+renderCredSelect();
 </script>
-
-<!-- Save Credential Modal -->
-<div class="modal-backdrop" id="save-modal">
-  <div class="modal">
-    <h3>Save credentials</h3>
-    <p>Give this endpoint + API key combination a name so you can reuse it.</p>
-    <div class="modal-field">
-      <label class="modal-label">Credential name</label>
-      <input class="modal-input" id="cred-name-input" type="text" placeholder="e.g. Acoustic US2 Production" maxlength="60">
-    </div>
-    <div class="modal-field">
-      <label class="modal-label">Endpoint</label>
-      <input class="modal-input" id="cred-preview-endpoint" type="text" readonly style="opacity:.6">
-    </div>
-    <div class="modal-field">
-      <label class="modal-label">Auth type</label>
-      <input class="modal-input" id="cred-preview-auth" type="text" readonly style="opacity:.6">
-    </div>
-    <div class="modal-actions">
-      <button class="modal-btn cancel" onclick="closeSaveModal()">Cancel</button>
-      <button class="modal-btn confirm" onclick="saveCredential()">Save credential</button>
-    </div>
-  </div>
-</div>
-
-<!-- Postman Export Modal -->
-<div class="modal-backdrop" id="postman-modal">
-  <div class="modal" style="width:460px">
-    <h3>Export to Postman collection</h3>
-    <p>Select the saved credentials to include, name the collection, and download a ready-to-import <code style="font-family:var(--mono);color:var(--accent);font-size:11px">.json</code> file.</p>
-    <div class="modal-field postman-collection-name">
-      <label class="modal-label">Collection name</label>
-      <input class="modal-input" id="postman-col-name" type="text" value="Acoustic Connect API" placeholder="Acoustic Connect API">
-    </div>
-    <div class="modal-label" style="margin-bottom:8px">Credentials to include</div>
-    <div class="postman-list" id="postman-list"></div>
-    <div class="modal-actions">
-      <button class="modal-btn cancel" onclick="closePostmanModal()">Cancel</button>
-      <button class="modal-btn confirm" onclick="downloadPostmanCollection()">Download collection</button>
-    </div>
-  </div>
-</div>
-
 </body>
 </html>
