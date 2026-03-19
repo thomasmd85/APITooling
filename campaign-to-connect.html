@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Campaign to Connect API Mapping</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; background: #f4f6f9; color: #222; }
+  h1 { background: #1a3a5c; color: #fff; padding: 18px 24px; font-size: 18px; letter-spacing: 0.5px; }
+  .subtitle { background: #2c5f8a; color: #cde; padding: 6px 24px; font-size: 12px; }
+  .container { padding: 20px; }
+  .section-label { background: #1a3a5c; color: #fff; font-weight: 700; font-size: 13px; padding: 8px 12px; margin-top: 24px; margin-bottom: 0; border-radius: 4px 4px 0 0; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 0; }
+  thead th { background: #2c5f8a; color: #fff; padding: 9px 10px; text-align: left; font-size: 12px; font-weight: 600; border: 1px solid #1a3a5c; }
+  tbody tr:nth-child(even) { background: #eef2f7; }
+  tbody tr:nth-child(odd) { background: #fff; }
+  tbody tr:hover { background: #dbe8f5; }
+  td { padding: 8px 10px; border: 1px solid #d0d8e4; vertical-align: top; line-height: 1.45; }
+  td.api-name { font-weight: 600; white-space: nowrap; color: #1a3a5c; }
+  td.connect-equiv { color: #1a6e3c; font-style: italic; }
+  td.not-available { color: #b94a00; font-weight: 600; }
+  td.notes { color: #555; font-size: 12px; }
+  .badge { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 3px; margin-bottom: 2px; }
+  .badge-rest { background: #e0f0ff; color: #0066aa; border: 1px solid #99ccee; }
+  .badge-xml { background: #fff3e0; color: #b36000; border: 1px solid #f0c070; }
+  .filter-bar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  .filter-bar label { font-weight: 600; font-size: 12px; color: #444; }
+  .filter-btn { padding: 5px 14px; border-radius: 20px; border: 1px solid #2c5f8a; background: #fff; color: #2c5f8a; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.15s; }
+  .filter-btn.active { background: #2c5f8a; color: #fff; }
+  .filter-btn:hover { background: #1a3a5c; color: #fff; }
+  input[type=text] { padding: 6px 12px; border: 1px solid #bbb; border-radius: 20px; font-size: 12px; width: 220px; outline: none; }
+  input[type=text]:focus { border-color: #2c5f8a; }
+  .count { font-size: 12px; color: #666; margin-left: auto; }
+</style>
+</head>
+<body>
+<h1>Campaign to Connect — API Mapping Reference</h1>
+<div class="subtitle">Maps Acoustic Campaign APIs to their Acoustic Connect equivalents with typical use cases</div>
+<div class="container">
+  <div class="filter-bar">
+    <label>Filter:</label>
+    <button class="filter-btn active" onclick="filter('all', this)">All</button>
+    <button class="filter-btn" onclick="filter('rest', this)">REST Only</button>
+    <button class="filter-btn" onclick="filter('xml', this)">XML Only</button>
+    <button class="filter-btn" onclick="filter('na', this)">No Equivalent</button>
+    <input type="text" id="searchBox" placeholder="Search APIs..." oninput="search(this.value)">
+    <span class="count" id="rowCount"></span>
+  </div>
+
+  <!-- REST APIs -->
+  <div class="section-label">REST APIs</div>
+  <table id="mainTable">
+    <thead>
+      <tr>
+        <th style="width:17%">Campaign API</th>
+        <th style="width:28%">How It Is Being Used</th>
+        <th style="width:20%">Connect Equivalent</th>
+        <th style="width:35%">Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr data-type="rest">
+        <td class="api-name"><span class="badge badge-rest">REST</span><br>GET Contact by Lookup Key</td>
+        <td>Look up a single contact record using a unique identifier such as email or account number to verify existence or retrieve current field values.</td>
+        <td class="connect-equiv">query contacts (with filter)</td>
+        <td class="notes">In Connect, use the contacts query with a filter on email or a custom key attribute.</td>
+      </tr>
+      <tr data-type="rest">
+        <td class="api-name"><span class="badge badge-rest">REST</span><br>Get Rich Content</td>
+        <td>Retrieve dynamic/rich content blocks associated with mobile or in-app messages for rendering or auditing purposes.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Rich content is managed within Campaign; no direct Connect equivalent for mobile rich content retrieval.</td>
+      </tr>
+      <tr data-type="rest">
+        <td class="api-name"><span class="badge badge-rest">REST</span><br>Create Rich Content</td>
+        <td>Programmatically create rich content blocks (e.g., carousels, banners) for mobile in-app or push messages.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Rich content creation is Campaign-specific; Connect focuses on audience and data management.</td>
+      </tr>
+      <tr data-type="rest">
+        <td class="api-name"><span class="badge badge-rest">REST</span><br>Get Published Messages</td>
+        <td>Retrieve a list of published messages to maintain an up-to-date catalog in CRM or external systems.</td>
+        <td class="connect-equiv">query messages (Early Access)</td>
+        <td class="notes">Connect's Get Messages API returns metadata (personalization variables, links, status) but not message bodies or assets.</td>
+      </tr>
+      <tr data-type="rest">
+        <td class="api-name"><span class="badge badge-rest">REST</span><br>In-App Content API</td>
+        <td>Deliver and manage in-app content for mobile applications, including targeted banners or modals.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">In-app content delivery is handled by Campaign's mobile SDK infrastructure.</td>
+      </tr>
+      <tr data-type="rest">
+        <td class="api-name"><span class="badge badge-rest">REST</span><br>Push to Segment</td>
+        <td>Send mobile push notifications to a defined segment of contacts.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Push delivery is Campaign-specific. Connect manages the audience; Campaign handles delivery.</td>
+      </tr>
+      <tr data-type="rest">
+        <td class="api-name"><span class="badge badge-rest">REST</span><br>Push to Segment (Inline Content)</td>
+        <td>Send push notifications to a segment with message content provided inline in the API request.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Same as Push to Segment — delivery layer remains in Campaign.</td>
+      </tr>
+      <tr data-type="rest">
+        <td class="api-name"><span class="badge badge-rest">REST</span><br>BCC REST API</td>
+        <td>Automatically BCC a designated address on outgoing emails for compliance or archiving purposes.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">BCC functionality is specific to Campaign's email send infrastructure.</td>
+      </tr>
+      <tr data-type="rest">
+        <td class="api-name"><span class="badge badge-rest">REST</span><br>Add Column to Relational Table</td>
+        <td>Extend an existing relational table schema by adding a new column to support additional data attributes.</td>
+        <td class="connect-equiv">mutation manage ReferenceSet Attributes</td>
+        <td class="notes">In Connect, use the Manage Reference Set Attributes mutation to add new attributes to an existing reference set.</td>
+      </tr>
+      <tr data-type="rest">
+        <td class="api-name"><span class="badge badge-rest">REST</span><br>Map Universal Behaviors</td>
+        <td>Map behavioral event data to universal behavior definitions for use in segmentation and automation.</td>
+        <td class="connect-equiv">Signals (real-time import)</td>
+        <td class="notes">Connect's real-time signal import supports behavioral event ingestion. Mapping configuration may differ.</td>
+      </tr>
+      <tr data-type="rest">
+        <td class="api-name"><span class="badge badge-rest">REST</span><br>Delete List</td>
+        <td>Programmatically delete auto-generated queries or lists that are no longer needed, to keep the account clean.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Segment/list deletion is UI only in Connect. Segments are calculated in real-time and do not require manual cleanup in the same way.</td>
+      </tr>
+      <tr data-type="rest">
+        <td class="api-name"><span class="badge badge-rest">REST</span><br>SMS External Consent</td>
+        <td>Update SMS consent status for contacts based on external opt-in/opt-out events captured outside Acoustic.</td>
+        <td class="connect-equiv">mutation updateContacts (consent)</td>
+        <td class="notes">Use Connect's consent mutation to update SMS channel consent. Ensure SMS is configured as a consent channel in your Connect subscription.</td>
+      </tr>
+      <tr data-type="rest">
+        <td class="api-name"><span class="badge badge-rest">REST</span><br>Export SMS Messages</td>
+        <td>Export a history of SMS messages sent via Campaign for reporting or CRM sync.</td>
+        <td class="connect-equiv">mutation ExportSignals</td>
+        <td class="notes">Signal exports via SFTP can include SMS send/delivery events depending on signal configuration.</td>
+      </tr>
+      <tr data-type="rest">
+        <td class="api-name"><span class="badge badge-rest">REST</span><br>Send SMS to Contact Source</td>
+        <td>Trigger an SMS send to a defined contact source or list.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">SMS delivery is handled by Campaign. Connect manages audience data only.</td>
+      </tr>
+      <tr data-type="rest">
+        <td class="api-name"><span class="badge badge-rest">REST</span><br>Send Transactional SMS</td>
+        <td>Send one-to-one transactional SMS messages triggered by real-time events (e.g., order confirmations, alerts).</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Transactional SMS delivery is Campaign-specific functionality.</td>
+      </tr>
+      <tr data-type="rest">
+        <td class="api-name"><span class="badge badge-rest">REST</span><br>Check Status of SMS Sent</td>
+        <td>Poll the delivery status of a transactional SMS message to confirm delivery or identify failures.</td>
+        <td class="connect-equiv">query dataJob</td>
+        <td class="notes">For job-based operations, use dataJob query. No direct SMS status check equivalent; signal exports may carry delivery events.</td>
+      </tr>
+      <tr data-type="rest">
+        <td class="api-name"><span class="badge badge-rest">REST</span><br>Channel Consent API</td>
+        <td>Retrieve or update a contact's consent status across multiple channels (email, SMS, push).</td>
+        <td class="connect-equiv">mutation updateContacts (consent)</td>
+        <td class="notes">Connect's Consent API supports per-channel and per-consent-group consent updates.</td>
+      </tr>
+      <tr data-type="rest">
+        <td class="api-name"><span class="badge badge-rest">REST</span><br>Contact by Channel</td>
+        <td>Look up a contact using a channel-specific identifier such as a phone number or push token.</td>
+        <td class="connect-equiv">query contacts (with filter)</td>
+        <td class="notes">Use addressable attributes (email, phone) as filter criteria in the Connect contacts query.</td>
+      </tr>
+      <tr data-type="rest">
+        <td class="api-name"><span class="badge badge-rest">REST</span><br>Establish Identity</td>
+        <td>Associate an anonymous user or device with a known contact identity for cross-channel tracking.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Identity resolution is handled at the Campaign/SDK layer. Connect stores resolved contact records.</td>
+      </tr>
+      <tr data-type="rest">
+        <td class="api-name"><span class="badge badge-rest">REST</span><br>Push to Contact</td>
+        <td>Send a push notification to a specific known contact across their registered devices.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Push delivery is Campaign-specific. Connect does not manage push delivery.</td>
+      </tr>
+      <tr data-type="rest">
+        <td class="api-name"><span class="badge badge-rest">REST</span><br>Push to Device</td>
+        <td>Send a push notification to a specific device token.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Device-level push delivery is Campaign-specific.</td>
+      </tr>
+      <tr data-type="rest">
+        <td class="api-name"><span class="badge badge-rest">REST</span><br>Send MO Message</td>
+        <td>Simulate or relay a mobile-originated (MO) inbound SMS message for testing or workflow triggering.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">MO messaging is Campaign-specific SMS infrastructure functionality.</td>
+      </tr>
+
+      <!-- XML APIs -->
+      <tr data-type="xml" style="background:#fffbe6!important">
+        <td colspan="4" style="background:#b36000;color:#fff;font-weight:700;font-size:13px;padding:8px 10px;">XML APIs</td>
+      </tr>
+
+      <!-- Automation -->
+      <tr data-type="xml"><td colspan="4" style="background:#f5e6cc;font-weight:700;color:#7a4500;padding:6px 10px;">Automation</td></tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>GetProgramsByContact</td>
+        <td>Retrieve all automation programs a contact is currently enrolled in, to understand their journey state in CRM.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Connect does not have a program/journey enrollment query. Journey management remains in Campaign.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>GetPrograms</td>
+        <td>Retrieve a list of all automation programs configured in the account for inventory or orchestration purposes.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Program/journey definitions are Campaign-specific.</td>
+      </tr>
+
+      <!-- Database Management -->
+      <tr data-type="xml"><td colspan="4" style="background:#f5e6cc;font-weight:700;color:#7a4500;padding:6px 10px;">Database Management</td></tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>AddRecipient</td>
+        <td>Add a new contact to a Campaign database, typically triggered by a CRM event such as a new account creation.</td>
+        <td class="connect-equiv">mutation createContacts</td>
+        <td class="notes">Direct equivalent. Use createContacts in Connect to add new contacts to the audience.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>CalculateQuery</td>
+        <td>Validate the expected contact count from an auto-generated query before scheduling a mailing.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Segments in Connect are calculated in real-time; there is no need to pre-calculate query counts.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>CreateQuery</td>
+        <td>Auto-generate a query containing a specific list of contact account numbers to target with a mailing, based on CRM logic.</td>
+        <td class="connect-equiv">mutation createImportJob</td>
+        <td class="notes">Use a JSON object with createImportJob to import a contact set and create a segment upon import. Segments are real-time in Connect.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>DoubleOptInRecipient</td>
+        <td>Trigger a double opt-in confirmation flow for a contact to verify email consent.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Double opt-in workflow is managed within Campaign. Connect stores resulting consent status via the Consent API.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>ExportList</td>
+        <td>Export contact records from Campaign databases to synchronize data with CRM, including opted-out contacts and new opt-ins within a date range.</td>
+        <td class="connect-equiv">query contacts</td>
+        <td class="notes">Use the contacts query with date-range filters. For OptedOutDate/OptedOutDetails equivalents, use the Connect Consent API. Confirm date-range filtering approach given ~1M contact volumes.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>GetLists</td>
+        <td>Retrieve a list of all databases and auto-generated queries to identify and clean up obsolete items.</td>
+        <td class="connect-equiv">query dataSets</td>
+        <td class="notes">Use dataSets to retrieve audience and reference set metadata. Auto-generated query equivalents are not applicable in Connect's real-time segment model.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>GetListMetaData</td>
+        <td>Retrieve schema details of a database (field names, types) to validate mapping before import or export operations.</td>
+        <td class="connect-equiv">query dataSets</td>
+        <td class="notes">The dataSets query returns audience structure including contact attribute names, types, and IDs needed for mutations.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>ImportList</td>
+        <td>Bulk add or update master list contacts from a map file and source file via FTP. Used for daily refreshes and full monthly reloads of master contact lists.</td>
+        <td class="connect-equiv">mutation createImportJob</td>
+        <td class="notes">Direct equivalent. Supports CSV import. Use in combination with SFTP file upload to Connect's FTP directory.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>SelectRecipientData</td>
+        <td>Retrieve current field values for a specific contact to verify data or pre-populate CRM records.</td>
+        <td class="connect-equiv">query contacts (with filter)</td>
+        <td class="notes">Use contacts query filtered by email or unique key. Returns all contact attributes.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>RemoveRecipient</td>
+        <td>Remove duplicate contact records after an account merge in CRM to maintain data integrity.</td>
+        <td class="connect-equiv">mutation deleteContacts</td>
+        <td class="notes">Max 25 contacts can be deleted per request in Connect. For large-scale deduplication, batch requests accordingly. Action is irreversible — consider opt-out instead where appropriate.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>SetColumnValue</td>
+        <td>Update a single field value for a contact record, such as flagging a preference or updating a status field.</td>
+        <td class="connect-equiv">mutation updateContacts</td>
+        <td class="notes">Use updateContacts with the specific attribute to update. Supports partial updates.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>UpdateRecipient</td>
+        <td>Update contact attributes such as AccountNumber after a CRM merge/split, or update profile fields from CRM.</td>
+        <td class="connect-equiv">mutation updateContacts</td>
+        <td class="notes">Direct equivalent. Also use updateContacts (consent) variant to opt contacts back in when needed.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>OptOutRecipient</td>
+        <td>Opt out a contact from email communications based on an unsubscribe event captured in CRM or an external system.</td>
+        <td class="connect-equiv">mutation updateContacts (consent)</td>
+        <td class="notes">Use the consent mutation to set the contact's channel consent status to opted-out.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>PurgeData</td>
+        <td>Delete all records from a database or relational table, typically to reset staging tables before a fresh import.</td>
+        <td class="connect-equiv">mutation deleteContacts / Update Reference Set</td>
+        <td class="notes">For contacts, use deleteContacts (batched, max 25 at a time). For reference sets, re-import with replace action via createImportJob.</td>
+      </tr>
+
+      <!-- Contact List Management -->
+      <tr data-type="xml"><td colspan="4" style="background:#f5e6cc;font-weight:700;color:#7a4500;padding:6px 10px;">Contact List Management</td></tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>AddContactToContactList</td>
+        <td>Add a contact to a specific contact list for targeted mailings or suppression lists.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Contact lists are Campaign-specific. In Connect, segmentation is done via real-time audience filters rather than static lists.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>CreateContactList</td>
+        <td>Create a new contact list to use as a mailing target or suppression group.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Static contact lists are a Campaign concept. Connect uses dynamic real-time segments.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>AddContactToProgram</td>
+        <td>Enroll a contact into an automation program to trigger a journey based on a CRM event.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Program enrollment is Campaign-specific. Connect does not manage journey enrollment.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>GetContactMailingDetails</td>
+        <td>Retrieve details of mailings sent to a specific contact for CRM communication history.</td>
+        <td class="connect-equiv">mutation ExportSignals</td>
+        <td class="notes">Signal exports include per-contact send/open/click event data. Filter by contact identifier after export.</td>
+      </tr>
+
+      <!-- Relational Table Management -->
+      <tr data-type="xml"><td colspan="4" style="background:#f5e6cc;font-weight:700;color:#7a4500;padding:6px 10px;">Relational Table Management</td></tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>CreateTable</td>
+        <td>Create a new relational table to store supplemental data associated with contacts (e.g., order history, product data).</td>
+        <td class="connect-equiv">mutation createReferenceSet (via import)</td>
+        <td class="notes">In Connect, reference sets serve the same purpose as relational tables. Create via import using createImportJob.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>ImportTable</td>
+        <td>Replace relational table data nightly with a fresh file (map file action=replace) to keep supplemental data current.</td>
+        <td class="connect-equiv">mutation createImportJob (reference sets)</td>
+        <td class="notes">Use createImportJob with a replace action to refresh reference set data. Combine with SFTP file upload.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>ExportTable</td>
+        <td>Export relational table data for auditing, backup, or synchronization with external systems.</td>
+        <td class="connect-equiv">query referenceSetRecords</td>
+        <td class="notes">Use referenceSetRecords query to retrieve reference set content. Supports filtering and pagination.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>PurgeTable</td>
+        <td>Clear all records from a relational table prior to a full replacement import.</td>
+        <td class="connect-equiv">mutation createImportJob (replace)</td>
+        <td class="notes">Use a replace-mode import to effectively purge and reload a reference set in one operation.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>JoinTable</td>
+        <td>Associate a relational table with a contact database to enable merge-field access and segmentation on relational data.</td>
+        <td class="connect-equiv">mutation connectReferenceSet</td>
+        <td class="notes">Use connectReferenceSet to link a reference set to the audience, enabling use of reference set attributes in segments and sends.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>InsertUpdateRelationalTable</td>
+        <td>Add new records or update existing ones in a relational table, such as appending new order records.</td>
+        <td class="connect-equiv">mutation updateReferenceSet</td>
+        <td class="notes">Use updateReferenceSet to upsert records in a reference set.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>DeleteRelationalTableData</td>
+        <td>Remove specific records from a relational table, such as expired or cancelled order records.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Selective record deletion from reference sets is not currently available via API. Use replace-mode import to refresh the full dataset.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>DeleteTable</td>
+        <td>Delete an entire relational table that is no longer needed.</td>
+        <td class="connect-equiv">mutation deleteReferenceSet</td>
+        <td class="notes">Use deleteReferenceSet to remove a reference set entirely from Connect.</td>
+      </tr>
+
+      <!-- Scoring Models -->
+      <tr data-type="xml"><td colspan="4" style="background:#f5e6cc;font-weight:700;color:#7a4500;padding:6px 10px;">Scoring Models</td></tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>GetContactScores</td>
+        <td>Retrieve scoring model scores for a contact to use in CRM-based segmentation or next-best-action logic.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Scoring models are Campaign-specific. Scores can be exported as contact attributes if synced to Connect.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>GetScoringModels</td>
+        <td>Retrieve a list of all scoring models configured in the account.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Scoring model management is Campaign-specific functionality.</td>
+      </tr>
+
+      <!-- Template & Mailing Management -->
+      <tr data-type="xml"><td colspan="4" style="background:#f5e6cc;font-weight:700;color:#7a4500;padding:6px 10px;">Template &amp; Mailing Management</td></tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>GetMailingTemplates</td>
+        <td>Maintain an up-to-date list of active mailing templates in CRM, including mailing ID, subject, and name, for use in email series creation.</td>
+        <td class="connect-equiv">query messages (Early Access)</td>
+        <td class="notes">Connect's Get Messages API returns metadata (personalization variables, embedded links, message status) but not message bodies or assets.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>ScheduleMailing</td>
+        <td>Automatically schedule mailings using auto-generated queries tied to CRM segmentation logic.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Mailing scheduling is Campaign-specific. Connect provides the audience data; Campaign executes the send.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>SendMailing</td>
+        <td>Trigger an immediate email send to a contact or list, used for transactional or event-driven messages.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Email send execution is Campaign-specific. Connect does not send messages.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>ForwardToFriend</td>
+        <td>Allow a recipient to forward a mailing to another contact via a tracked link.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Forward-to-friend is a Campaign email feature with no Connect equivalent.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>PreviewMailing</td>
+        <td>Generate a preview of a mailing for a specific contact to validate personalization before scheduling.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Mailing preview is Campaign-specific.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>ExportMailingTemplate</td>
+        <td>Export a mailing template's HTML and metadata for backup, auditing, or migration to another system.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Template export is Campaign-specific. Connect's messages query provides metadata only (Early Access).</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>SaveMailing</td>
+        <td>Programmatically create or update a mailing template, used in automated template generation workflows.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Template creation/editing is Campaign-specific.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>GetMessageGroupDetails</td>
+        <td>Retrieve details about an automated message group to understand the messages associated with a triggered campaign.</td>
+        <td class="connect-equiv">query messages (Early Access)</td>
+        <td class="notes">Partial equivalent — Connect's messages query returns message metadata. Full group structure may require Campaign API.</td>
+      </tr>
+
+      <!-- Dynamic Content -->
+      <tr data-type="xml"><td colspan="4" style="background:#f5e6cc;font-weight:700;color:#7a4500;padding:6px 10px;">Dynamic Content</td></tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>AddDCRuleset</td>
+        <td>Create a new dynamic content ruleset to define content variation logic based on contact attributes.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Dynamic content rulesets are Campaign-specific. Connect provides the audience attributes used in rules.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>DeleteDCRuleset</td>
+        <td>Remove an outdated or unused dynamic content ruleset from the asset library.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Campaign-specific.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>ExportDCRuleset</td>
+        <td>Export a dynamic content ruleset for backup or migration.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Campaign-specific.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>GetDCRuleset</td>
+        <td>Retrieve details of a specific ruleset to audit or replicate dynamic content logic.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Campaign-specific.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>ImportDCRuleset</td>
+        <td>Import a previously exported ruleset into a Campaign account, used during migrations or environment promotions.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Campaign-specific.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>ListDCRulesetsForMailing</td>
+        <td>List all dynamic content rulesets applied to a specific mailing.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Campaign-specific.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>ReplaceDCRuleset</td>
+        <td>Replace an existing ruleset with an updated version as content strategy evolves.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Campaign-specific.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>ValidateDCRuleset</td>
+        <td>Validate a ruleset before applying it to a mailing to catch configuration errors.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Campaign-specific.</td>
+      </tr>
+
+      <!-- Reporting -->
+      <tr data-type="xml"><td colspan="4" style="background:#f5e6cc;font-weight:700;color:#7a4500;padding:6px 10px;">Reporting</td></tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>ListRecipientMailings</td>
+        <td>Retrieve the email history for a specific contact to build communication history in CRM.</td>
+        <td class="connect-equiv">mutation ExportSignals</td>
+        <td class="notes">Signal exports provide per-contact event history (send, open, click, opt-out). Filter post-export by contact ID.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>GetReportIdByDate</td>
+        <td>Extract report IDs for emails sent within a date range as a precursor to pulling detailed metrics.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">No direct equivalent. Signal exports cover event-level data. Aggregate reporting remains in Campaign.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>GetSentMailingsForOrg</td>
+        <td>Retrieve all mailings sent across the organization to maintain a complete send calendar in CRM.</td>
+        <td class="connect-equiv">mutation ExportSignals</td>
+        <td class="notes">Signal exports include message name, subject line, from/reply-to address, and personalization variables per send event.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>GetSentMailingsForUser</td>
+        <td>Retrieve mailings sent by a specific Campaign user for user-level activity reporting.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">User-level send attribution is not available in Connect signal exports.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>GetSentMailingsForList</td>
+        <td>Retrieve all mailings sent to a specific list or database, used to interpret raw recipient data and build CRM communication history.</td>
+        <td class="connect-equiv">mutation ExportSignals</td>
+        <td class="notes">Signal exports cover send events at the contact level. Segment names TBD for inclusion in Signal Export.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>GetAggregateTrackingForUser</td>
+        <td>Retrieve aggregate email metrics (opens, clicks, bounces) for a specific user's sends.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Aggregate reporting is Campaign-specific. Signal exports provide raw event data for custom aggregation.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>GetAggregateTrackingForOrg</td>
+        <td>Retrieve organization-wide aggregate email performance metrics for executive reporting.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Aggregate reporting is Campaign-specific.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>RawRecipientDataExport</td>
+        <td>Export raw contact-level event data (clicks, opens, opt-outs) daily to build communication history in CRM and drive targeting segmentations.</td>
+        <td class="connect-equiv">mutation ExportSignals</td>
+        <td class="notes">Files dropped to SFTP. Clicked link URLs may be added to Signal Export (TBD). Segment names in Signal Export also TBD.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>WebTrackingDataExport</td>
+        <td>Export web behavior tracking events for contacts to enrich CRM profiles with on-site activity.</td>
+        <td class="connect-equiv">Signals (real-time import / export)</td>
+        <td class="notes">Web behavior can be ingested as signals into Connect in real time and exported via ExportSignals.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>GetAggregateTrackingForMailing</td>
+        <td>Retrieve aggregate performance metrics for a specific mailing (opens, clicks, bounces, unsubscribes).</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Mailing-level aggregate reporting remains in Campaign. Raw event data available via Signal Export.</td>
+      </tr>
+
+      <!-- Miscellaneous -->
+      <tr data-type="xml"><td colspan="4" style="background:#f5e6cc;font-weight:700;color:#7a4500;padding:6px 10px;">Miscellaneous</td></tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>DeleteJob</td>
+        <td>Delete a completed or failed data job to keep the job queue clean.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Job lifecycle management is handled differently in Connect; no explicit DeleteJob equivalent.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>GetFolderPath</td>
+        <td>Retrieve the folder path of a Campaign asset or object for organizational or migration purposes.</td>
+        <td class="not-available">Not Available</td>
+        <td class="notes">Connect does not use a folder-based asset structure.</td>
+      </tr>
+      <tr data-type="xml">
+        <td class="api-name"><span class="badge badge-xml">XML</span><br>GetJobStatus</td>
+        <td>Monitor the status of a data job (import, export) to know when it completes before retrieving a file or continuing processing.</td>
+        <td class="connect-equiv">query dataJob</td>
+        <td class="notes">No formal documentation but accessible via GraphQL introspection in Connect.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+  let currentFilter = 'all';
+  let currentSearch = '';
+
+  function updateRows() {
+    const rows = document.querySelectorAll('#mainTable tbody tr[data-type]');
+    let visible = 0;
+    rows.forEach(row => {
+      const type = row.getAttribute('data-type');
+      const text = row.textContent.toLowerCase();
+      const hasNA = row.querySelector('.not-available') !== null;
+      const typeMatch = currentFilter === 'all' || currentFilter === type || (currentFilter === 'na' && hasNA);
+      const searchMatch = currentSearch === '' || text.includes(currentSearch);
+      const show = typeMatch && searchMatch;
+      row.style.display = show ? '' : 'none';
+      if (show) visible++;
+    });
+    // Also hide/show section headers
+    document.querySelectorAll('#mainTable tbody tr:not([data-type])').forEach(row => {
+      row.style.display = '';
+    });
+    document.getElementById('rowCount').textContent = visible + ' APIs shown';
+  }
+
+  function filter(type, btn) {
+    currentFilter = type;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    updateRows();
+  }
+
+  function search(val) {
+    currentSearch = val.toLowerCase();
+    updateRows();
+  }
+
+  updateRows();
+</script>
+</body>
+</html>
